@@ -1,0 +1,34 @@
+[package]
+name = "boring-rustls-provider"
+version = "0.0.1"
+authors = ["Jan Rüth <boring-rustls-provider@djiehmail.com>"]
+edition = "2021"
+license = "MIT"
+description = "Boringssl rustls provider"
+publish = false
+
+[features]
+default = []
+# Use a FIPS-validated version of boringssl.
+#fips = ["boring/fips", "boring-sys/fips"]
+logging = ["log"]
+
+
+[dependencies]
+aead = {version = "0.5", default_features = false, features = ["alloc"] }
+boring = { version = "4.0", default-features = false }
+boring-sys = { version = "4.0", default-features = false }
+foreign-types = "0.5"
+lazy_static = "1.4"
+log = { version = "0.4.4", optional = true }
+once_cell = "1"
+rustls = { workspace = true }
+rustls-pki-types = "0.2"
+spki = "0.7"
+webpki = { package = "rustls-webpki", version = "0.102.0-alpha.1", default-features = false, features = ["alloc", "std"] }
+
+[dev-dependencies]
+hex-literal = "0.4"
+
+
+

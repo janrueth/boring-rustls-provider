@@ -1,0 +1,16 @@
+[workspace]
+members = [
+  # the main library and tests
+  "boring-rustls-provider",
+  # tests and example code
+  "examples",
+]
+default-members = [
+  "examples",
+  "boring-rustls-provider",
+]
+
+resolver = "2"
+
+[workspace.dependencies]
+rustls = { version = "=0.22.0-alpha.4", default-features = false }
