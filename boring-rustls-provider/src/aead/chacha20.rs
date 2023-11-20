@@ -1,10 +1,10 @@
+use super::{BoringAead, BoringCipher};
 use aead::{
     consts::{U12, U16},
     AeadCore,
 };
+use boring_additions::aead::Algorithm;
 use rustls::{crypto::cipher, ConnectionTrafficSecrets};
-
-use super::{aead2::Algorithm, BoringAead, BoringCipher};
 
 pub struct ChaCha20Poly1305 {}
 
@@ -23,6 +23,14 @@ impl BoringCipher for ChaCha20Poly1305 {
 
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets {
         ConnectionTrafficSecrets::Chacha20Poly1305 { key, iv }
+    }
+
+    fn fixed_iv_len() -> usize {
+        4
+    }
+
+    fn explicit_nonce_len() -> usize {
+        8
     }
 }
 

@@ -15,6 +15,13 @@ impl BoringHash for Sha256 {
     }
 }
 
+pub struct Sha384();
+impl BoringHash for Sha384 {
+    fn new() -> boring::hash::MessageDigest {
+        boring::hash::MessageDigest::sha384()
+    }
+}
+
 pub struct Hkdf<T: BoringHash>(PhantomData<T>);
 
 impl<T: BoringHash> Hkdf<T> {

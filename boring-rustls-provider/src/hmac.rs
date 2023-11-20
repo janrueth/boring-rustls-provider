@@ -7,6 +7,7 @@ use crate::helper::{cvt, cvt_p};
 
 #[allow(unused)]
 pub const SHA256: &dyn crypto::hmac::Hmac = &BoringHmac(boring::nid::Nid::SHA256);
+pub const SHA384: &dyn crypto::hmac::Hmac = &BoringHmac(boring::nid::Nid::SHA384);
 
 pub struct BoringHmac(pub boring::nid::Nid);
 

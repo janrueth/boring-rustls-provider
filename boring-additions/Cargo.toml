@@ -1,0 +1,18 @@
+[package]
+name = "boring-additions"
+version = "0.0.1"
+authors = ["Jan Rüth <boring-rustls-provider@djiehmail.com>"]
+edition = "2021"
+license = "MIT"
+description = "Boring additions"
+publish = false
+
+[dependencies]
+aead = { version = "0.5", default_features = false, features = ["alloc"] }
+boring = { workspace = true }
+boring-sys = { workspace = true }
+foreign-types = "0.5"
+
+
+
+

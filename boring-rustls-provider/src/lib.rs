@@ -13,6 +13,8 @@ mod hkdf;
 mod hmac;
 mod kx;
 mod sign;
+#[cfg(feature = "tls12")]
+mod tls12;
 mod tls13;
 mod verify;
 
@@ -27,17 +29,23 @@ impl CryptoProvider for Provider {
     }
 
     fn default_cipher_suites(&self) -> &'static [SupportedCipherSuite] {
-        if boring::fips::enabled() {
-            ALL_FIPS_SUITES
-        } else {
+        #[cfg(feature = "fips-only")]
+        {
+            ALL_FIPS_CIPHER_SUITES
+        }
+        #[cfg(not(feature = "fips-only"))]
+        {
             ALL_CIPHER_SUITES
         }
     }
 
     fn default_kx_groups(&self) -> &'static [&'static dyn SupportedKxGroup] {
-        if boring::fips::enabled() {
+        #[cfg(feature = "fips-only")]
+        {
             ALL_FIPS_KX_GROUPS
-        } else {
+        }
+        #[cfg(not(feature = "fips-only"))]
+        {
             ALL_KX_GROUPS
         }
     }
@@ -52,22 +60,65 @@ impl CryptoProvider for Provider {
     }
 
     fn signature_verification_algorithms(&self) -> rustls::WebPkiSupportedAlgorithms {
-        verify::ALL_ALGORITHMS
+        #[cfg(feature = "fips-only")]
+        {
+            verify::ALL_FIPS_ALGORITHMS
+        }
+        #[cfg(not(feature = "fips-only"))]
+        {
+            verify::ALL_ALGORITHMS
+        }
     }
 }
 
-static ALL_FIPS_SUITES: &[SupportedCipherSuite] = &[
+#[allow(unused)]
+static ALL_FIPS_CIPHER_SUITES: &[SupportedCipherSuite] = &[
+    SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
     SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
-    SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA256),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES256_GCM_SHA384),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES256_GCM_SHA384),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES128_GCM_SHA256),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
 ];
 
+#[allow(unused)]
 static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
-    SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
-    SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA256),
     SupportedCipherSuite::Tls13(&tls13::CHACHA20_POLY1305_SHA256),
+    SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
+    SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES256_GCM_SHA384),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES256_GCM_SHA384),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES128_GCM_SHA256),
+    #[cfg(feature = "tls12")]
+    SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
 ];
 
-pub const ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[];
+/// Allowed KX curves for FIPS are recommended
+/// in [NIST SP 800-186](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-186.pdf)
+///
+/// See Sec. 3.1.2 Table 2
+/// Ordered in decending order of security strength
+#[allow(unused)]
+pub const ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
+    &kx::Secp521r1 as _, // P-521 in FIPS lingo
+    &kx::X448 as _,      // Curve448 in FIPS lingo
+    &kx::Secp384r1 as _, // P-384 in FIPS lingo
+    &kx::X25519 as _,    // Curve25519 in FIPS lingo
+    &kx::Secp256r1 as _, // P-256 in FIPS lingo
+];
+
+#[allow(unused)]
 pub const ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     &kx::X25519 as _,
     &kx::X448 as _,

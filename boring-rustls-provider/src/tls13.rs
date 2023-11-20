@@ -11,12 +11,12 @@ pub static AES_128_GCM_SHA256: Tls13CipherSuite = Tls13CipherSuite {
     aead_alg: &aead::Aead::<aead::aes::Aes128>::DEFAULT,
 };
 
-pub static AES_256_GCM_SHA256: Tls13CipherSuite = Tls13CipherSuite {
+pub static AES_256_GCM_SHA384: Tls13CipherSuite = Tls13CipherSuite {
     common: rustls::CipherSuiteCommon {
-        suite: rustls::CipherSuite::TLS13_AES_128_GCM_SHA256,
-        hash_provider: hash::SHA256,
+        suite: rustls::CipherSuite::TLS13_AES_256_GCM_SHA384,
+        hash_provider: hash::SHA384,
     },
-    hkdf_provider: &hkdf::Hkdf::<hkdf::Sha256>::DEFAULT,
+    hkdf_provider: &hkdf::Hkdf::<hkdf::Sha384>::DEFAULT,
     aead_alg: &aead::Aead::<aead::aes::Aes256>::DEFAULT,
 };
 

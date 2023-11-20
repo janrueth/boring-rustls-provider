@@ -13,7 +13,7 @@ Further, the rustls crypto provider API is still not stable it seems. This works
 Currently, supports only TLS 1.3:
 ```
 AES_128_GCM_SHA256
-AES_256_GCM_SHA256
+AES_256_GCM_SHA384
 CHACHA20_POLY1305_SHA256
 ```
 

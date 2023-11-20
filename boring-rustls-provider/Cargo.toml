@@ -8,16 +8,19 @@ description = "Boringssl rustls provider"
 publish = false
 
 [features]
-default = []
+default = ["tls12"]
 # Use a FIPS-validated version of boringssl.
 #fips = ["boring/fips", "boring-sys/fips"]
 logging = ["log"]
+fips-only = []
+tls12 = ["rustls/tls12"]
 
 
 [dependencies]
 aead = {version = "0.5", default_features = false, features = ["alloc"] }
-boring = { version = "4.0", default-features = false }
-boring-sys = { version = "4.0", default-features = false }
+boring = { workspace = true }
+boring-additions = { path = "../boring-additions" }
+boring-sys = { workspace = true }
 foreign-types = "0.5"
 lazy_static = "1.4"
 log = { version = "0.4.4", optional = true }

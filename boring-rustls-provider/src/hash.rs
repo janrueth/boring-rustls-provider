@@ -1,6 +1,7 @@
 use rustls::crypto::hash;
 
 pub const SHA256: &dyn hash::Hash = &Hash(boring::nid::Nid::SHA256);
+pub const SHA384: &dyn hash::Hash = &Hash(boring::nid::Nid::SHA384);
 
 pub struct Hash(pub boring::nid::Nid);
 

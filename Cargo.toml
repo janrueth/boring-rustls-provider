@@ -1,5 +1,7 @@
 [workspace]
 members = [
+  # things that should probably be in boring crate
+  "boring-additions",
   # the main library and tests
   "boring-rustls-provider",
   # tests and example code
@@ -13,4 +15,6 @@ default-members = [
 resolver = "2"
 
 [workspace.dependencies]
+boring = { version = "4.0", default-features = false }
+boring-sys = { version = "4.0", default-features = false }
 rustls = { version = "=0.22.0-alpha.4", default-features = false }
