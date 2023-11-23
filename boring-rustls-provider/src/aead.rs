@@ -36,9 +36,6 @@ pub(crate) struct BoringAeadCrypter<T: BoringAead> {
     phantom: PhantomData<T>,
 }
 
-unsafe impl<T: BoringAead> Sync for BoringAeadCrypter<T> {}
-unsafe impl<T: BoringAead> Send for BoringAeadCrypter<T> {}
-
 impl<T: BoringAead> AeadCore for BoringAeadCrypter<T> {
     // inherit all properties from the Algorithm
 
@@ -184,9 +181,6 @@ where
 }
 
 pub(crate) struct Aead<T: BoringCipher>(PhantomData<T>);
-
-unsafe impl<T: BoringCipher> Sync for Aead<T> {}
-unsafe impl<T: BoringCipher> Send for Aead<T> {}
 
 impl<T: BoringCipher> Aead<T> {
     pub const DEFAULT: Self = Self(PhantomData);

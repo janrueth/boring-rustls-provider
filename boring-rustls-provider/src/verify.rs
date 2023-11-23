@@ -1,7 +1,7 @@
 use rustls::{SignatureScheme, WebPkiSupportedAlgorithms};
 
 pub(crate) mod ec;
-mod ed;
+pub(crate) mod ed;
 pub(crate) mod rsa;
 
 #[allow(unused)]

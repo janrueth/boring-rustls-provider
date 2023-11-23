@@ -1,8 +1,13 @@
 use std::ptr;
 
 use boring::error::ErrorStack;
+use foreign_types::ForeignType;
+
+mod types;
 
 use crate::helper::{cvt, cvt_p};
+
+pub use self::types::*;
 
 pub struct Algorithm(*const boring_sys::EVP_AEAD);
 
@@ -55,13 +60,10 @@ impl Algorithm {
 }
 
 pub struct Crypter {
-    ctx: *mut boring_sys::EVP_AEAD_CTX,
+    ctx: EvpAeadCtx,
     max_overhead: usize,
     nonce_len: usize,
 }
-
-unsafe impl Send for Crypter {}
-unsafe impl Sync for Crypter {}
 
 impl Crypter {
     pub fn new(aead_alg: Algorithm, key: &[u8]) -> Result<Self, ErrorStack> {
@@ -70,12 +72,12 @@ impl Crypter {
 
         let this = unsafe {
             Self {
-                ctx: cvt_p(boring_sys::EVP_AEAD_CTX_new(
+                ctx: EvpAeadCtx::from_ptr(cvt_p(boring_sys::EVP_AEAD_CTX_new(
                     aead_alg.0,
                     key.as_ptr(),
                     key.len(),
                     boring_sys::EVP_AEAD_DEFAULT_TAG_LENGTH as usize,
-                ))?,
+                ))?),
                 max_overhead: aead_alg.max_overhead(),
                 nonce_len: aead_alg.nonce_len(),
             }
@@ -104,7 +106,7 @@ impl Crypter {
         let mut tag_len = tag.len();
         unsafe {
             cvt(boring_sys::EVP_AEAD_CTX_seal_scatter(
-                self.ctx,
+                self.ctx.as_ptr(),
                 buffer.as_mut_ptr(),
                 tag.as_mut_ptr(),
                 &mut tag_len,
@@ -133,7 +135,7 @@ impl Crypter {
 
         unsafe {
             cvt(boring_sys::EVP_AEAD_CTX_open_gather(
-                self.ctx,
+                self.ctx.as_ptr(),
                 buffer.as_mut_ptr(),
                 nonce.as_ptr(),
                 nonce.len(),
@@ -146,14 +148,6 @@ impl Crypter {
             ))?;
         }
         Ok(())
-    }
-}
-
-impl Drop for Crypter {
-    fn drop(&mut self) {
-        unsafe {
-            boring_sys::EVP_AEAD_CTX_free(self.ctx);
-        }
     }
 }
 

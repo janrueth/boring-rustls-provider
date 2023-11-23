@@ -1,4 +1,4 @@
-use boring::error::ErrorStack;
+use boring::{dh::Dh, error::ErrorStack, pkey::Private};
 use foreign_types::ForeignType;
 use rustls::crypto;
 
@@ -7,7 +7,7 @@ use crate::helper::{cvt, cvt_p};
 use super::DhKeyType;
 
 pub struct BoringDhKey {
-    dh: boring::dh::Dh<boring::pkey::Private>,
+    dh: Dh<Private>,
     pub_bytes: Vec<u8>,
     key_type: DhKeyType,
 }
@@ -15,7 +15,7 @@ pub struct BoringDhKey {
 impl BoringDhKey {
     pub fn generate_ffdhe_2048() -> Result<Self, ErrorStack> {
         let mut me = Self {
-            dh: unsafe { boring::dh::Dh::from_ptr(cvt_p(boring_sys::DH_get_rfc7919_2048())?) },
+            dh: unsafe { Dh::from_ptr(cvt_p(boring_sys::DH_get_rfc7919_2048())?) },
             pub_bytes: Vec::new(),
             key_type: DhKeyType::FFDHE2048,
         };

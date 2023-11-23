@@ -1,6 +1,8 @@
 use std::{os::raw::c_void, ptr};
 
 use boring::hash::MessageDigest;
+use boring_additions::hmac::HmacCtx;
+use foreign_types::ForeignType;
 use rustls::crypto;
 
 use crate::helper::{cvt, cvt_p};
@@ -14,7 +16,7 @@ pub struct BoringHmac(pub boring::nid::Nid);
 impl crypto::hmac::Hmac for BoringHmac {
     fn with_key(&self, key: &[u8]) -> Box<dyn crypto::hmac::Key> {
         Box::new(unsafe {
-            let ctx = cvt_p(boring_sys::HMAC_CTX_new()).unwrap();
+            let ctx = HmacCtx::from_ptr(cvt_p(boring_sys::HMAC_CTX_new()).unwrap());
 
             let md = boring::hash::MessageDigest::from_nid(self.0).unwrap();
 
@@ -33,30 +35,12 @@ impl crypto::hmac::Hmac for BoringHmac {
     }
 }
 
+#[derive(Clone)]
 struct BoringHmacKey {
-    ctx: *mut boring_sys::HMAC_CTX,
+    ctx: HmacCtx,
     md: MessageDigest,
     key: Vec<u8>,
 }
-
-impl Clone for BoringHmacKey {
-    fn clone(&self) -> Self {
-        let ctx = unsafe {
-            let ctx = cvt_p(boring_sys::HMAC_CTX_new()).unwrap();
-
-            cvt(boring_sys::HMAC_CTX_copy(ctx, self.ctx)).unwrap();
-            ctx
-        };
-        Self {
-            ctx,
-            md: self.md.clone(),
-            key: self.key.clone(),
-        }
-    }
-}
-
-unsafe impl Sync for BoringHmacKey {}
-unsafe impl Send for BoringHmacKey {}
 
 impl crypto::hmac::Key for BoringHmacKey {
     fn sign_concat(&self, first: &[u8], middle: &[&[u8]], last: &[u8]) -> crypto::hmac::Tag {
@@ -65,7 +49,7 @@ impl crypto::hmac::Key for BoringHmacKey {
         crypto::hmac::Tag::new(unsafe {
             // initialize a new hmac
             cvt(boring_sys::HMAC_Init_ex(
-                self.ctx,
+                self.ctx.as_ptr(),
                 self.key.as_ptr() as *const c_void,
                 self.key.len(),
                 self.md.as_ptr(),
@@ -74,21 +58,31 @@ impl crypto::hmac::Key for BoringHmacKey {
             .unwrap();
 
             cvt(boring_sys::HMAC_Update(
-                self.ctx,
+                self.ctx.as_ptr(),
                 first.as_ptr(),
                 first.len(),
             ))
             .unwrap();
 
             for m in middle {
-                cvt(boring_sys::HMAC_Update(self.ctx, m.as_ptr(), m.len())).unwrap();
+                cvt(boring_sys::HMAC_Update(
+                    self.ctx.as_ptr(),
+                    m.as_ptr(),
+                    m.len(),
+                ))
+                .unwrap();
             }
 
-            cvt(boring_sys::HMAC_Update(self.ctx, last.as_ptr(), last.len())).unwrap();
+            cvt(boring_sys::HMAC_Update(
+                self.ctx.as_ptr(),
+                last.as_ptr(),
+                last.len(),
+            ))
+            .unwrap();
 
             let mut out_len = 0;
             cvt(boring_sys::HMAC_Final(
-                self.ctx,
+                self.ctx.as_ptr(),
                 out.as_mut_ptr(),
                 &mut out_len,
             ))
@@ -100,14 +94,6 @@ impl crypto::hmac::Key for BoringHmacKey {
 
     fn tag_len(&self) -> usize {
         self.md.size()
-    }
-}
-
-impl Drop for BoringHmacKey {
-    fn drop(&mut self) {
-        unsafe {
-            boring_sys::HMAC_CTX_free(self.ctx);
-        }
     }
 }
 
