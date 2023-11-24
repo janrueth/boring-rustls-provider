@@ -7,30 +7,34 @@ use rustls::crypto;
 
 use crate::helper::{cvt, cvt_p};
 
+/// A SHA256-based Hmac
 #[allow(unused)]
 pub const SHA256: &dyn crypto::hmac::Hmac = &BoringHmac(boring::nid::Nid::SHA256);
+/// A SHA384-based Hmac
 pub const SHA384: &dyn crypto::hmac::Hmac = &BoringHmac(boring::nid::Nid::SHA384);
 
-pub struct BoringHmac(pub boring::nid::Nid);
+struct BoringHmac(pub boring::nid::Nid);
 
 impl crypto::hmac::Hmac for BoringHmac {
     fn with_key(&self, key: &[u8]) -> Box<dyn crypto::hmac::Key> {
-        Box::new(unsafe {
-            let ctx = HmacCtx::from_ptr(cvt_p(boring_sys::HMAC_CTX_new()).unwrap());
+        let ctx = unsafe {
+            HmacCtx::from_ptr(
+                cvt_p(boring_sys::HMAC_CTX_new()).expect("failed getting hmac context"),
+            )
+        };
 
-            let md = boring::hash::MessageDigest::from_nid(self.0).unwrap();
+        let md = MessageDigest::from_nid(self.0).expect("failed getting digest");
 
-            BoringHmacKey {
-                ctx,
-                md,
-                key: key.to_vec(),
-            }
+        Box::new(BoringHmacKey {
+            ctx,
+            md,
+            key: key.to_vec(),
         })
     }
 
     fn hash_output_len(&self) -> usize {
-        boring::hash::MessageDigest::from_nid(self.0)
-            .unwrap()
+        MessageDigest::from_nid(self.0)
+            .expect("failed getting digest")
             .size()
     }
 }
@@ -42,11 +46,9 @@ struct BoringHmacKey {
     key: Vec<u8>,
 }
 
-impl crypto::hmac::Key for BoringHmacKey {
-    fn sign_concat(&self, first: &[u8], middle: &[&[u8]], last: &[u8]) -> crypto::hmac::Tag {
-        let mut out = [0u8; 32];
-
-        crypto::hmac::Tag::new(unsafe {
+impl BoringHmacKey {
+    fn init(&self) {
+        unsafe {
             // initialize a new hmac
             cvt(boring_sys::HMAC_Init_ex(
                 self.ctx.as_ptr(),
@@ -55,41 +57,50 @@ impl crypto::hmac::Key for BoringHmacKey {
                 self.md.as_ptr(),
                 ptr::null_mut(),
             ))
-            .unwrap();
+        }
+        .expect("failed initializing hmac");
+    }
 
+    fn update(&self, bytes: &[u8]) {
+        unsafe {
             cvt(boring_sys::HMAC_Update(
                 self.ctx.as_ptr(),
-                first.as_ptr(),
-                first.len(),
+                bytes.as_ptr(),
+                bytes.len(),
             ))
-            .unwrap();
+        }
+        .expect("failed updating hmac");
+    }
 
-            for m in middle {
-                cvt(boring_sys::HMAC_Update(
-                    self.ctx.as_ptr(),
-                    m.as_ptr(),
-                    m.len(),
-                ))
-                .unwrap();
-            }
-
-            cvt(boring_sys::HMAC_Update(
-                self.ctx.as_ptr(),
-                last.as_ptr(),
-                last.len(),
-            ))
-            .unwrap();
-
-            let mut out_len = 0;
+    fn finish(&self, out: &mut [u8]) -> usize {
+        let mut out_len = 0;
+        unsafe {
             cvt(boring_sys::HMAC_Final(
                 self.ctx.as_ptr(),
                 out.as_mut_ptr(),
                 &mut out_len,
             ))
-            .unwrap();
+        }
+        .expect("failed hmac final");
+        out_len as usize
+    }
+}
 
-            &out[..out_len as usize]
-        })
+impl crypto::hmac::Key for BoringHmacKey {
+    fn sign_concat(&self, first: &[u8], middle: &[&[u8]], last: &[u8]) -> crypto::hmac::Tag {
+        self.init();
+
+        self.update(first);
+        for m in middle {
+            self.update(m);
+        }
+
+        self.update(last);
+
+        let mut out = [0u8; 32];
+        let out_len = self.finish(&mut out);
+
+        crypto::hmac::Tag::new(&out[..out_len])
     }
 
     fn tag_len(&self) -> usize {

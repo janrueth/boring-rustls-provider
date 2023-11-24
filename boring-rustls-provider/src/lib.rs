@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use helper::log_and_map;
 use rustls::{
     crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup},
     SupportedCipherSuite,
@@ -18,6 +19,7 @@ mod tls12;
 mod tls13;
 mod verify;
 
+/// The boringssl-based Rustls Crypto provider
 pub static PROVIDER: &'static dyn CryptoProvider = &Provider;
 
 #[derive(Debug)]
@@ -25,7 +27,7 @@ struct Provider;
 
 impl CryptoProvider for Provider {
     fn fill_random(&self, bytes: &mut [u8]) -> Result<(), GetRandomFailed> {
-        boring::rand::rand_bytes(bytes).map_err(|_| GetRandomFailed)
+        boring::rand::rand_bytes(bytes).map_err(|e| log_and_map("rand_bytes", e, GetRandomFailed))
     }
 
     fn default_cipher_suites(&self) -> &'static [SupportedCipherSuite] {
@@ -54,9 +56,7 @@ impl CryptoProvider for Provider {
         &self,
         key_der: PrivateKeyDer<'static>,
     ) -> Result<std::sync::Arc<dyn rustls::sign::SigningKey>, rustls::Error> {
-        sign::BoringPrivateKey::try_from(key_der)
-            .map(|x| Arc::new(x) as _)
-            .map_err(|_| rustls::Error::General("invalid private key".into()))
+        sign::BoringPrivateKey::try_from(key_der).map(|x| Arc::new(x) as _)
     }
 
     fn signature_verification_algorithms(&self) -> rustls::WebPkiSupportedAlgorithms {

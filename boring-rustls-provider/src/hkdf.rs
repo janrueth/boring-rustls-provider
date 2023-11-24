@@ -5,10 +5,15 @@ use rustls::crypto::tls13::{self, Hkdf as RustlsHkdf};
 
 use crate::helper::{cvt, cvt_p};
 
+/// A trait that is required for a Hkdf function
 pub trait BoringHash: Send + Sync {
+    /// Instantiate a new digest using
+    /// the hash function that this trait
+    /// is implemented for.
     fn new_hash() -> MessageDigest;
 }
 
+/// SHA256-based for Hkdf
 pub struct Sha256();
 impl BoringHash for Sha256 {
     fn new_hash() -> MessageDigest {
@@ -16,6 +21,7 @@ impl BoringHash for Sha256 {
     }
 }
 
+/// SHA384-based for Hkdf
 pub struct Sha384();
 impl BoringHash for Sha384 {
     fn new_hash() -> MessageDigest {
@@ -23,9 +29,12 @@ impl BoringHash for Sha384 {
     }
 }
 
+/// A Hmac-based key derivation function
+/// using T as the hash function
 pub struct Hkdf<T: BoringHash>(PhantomData<T>);
 
 impl<T: BoringHash> Hkdf<T> {
+    /// A default Hkdf implementation
     pub const DEFAULT: Self = Self(PhantomData);
 }
 
@@ -130,7 +139,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
     }
 }
 
-pub struct HkdfExpander {
+struct HkdfExpander {
     prk: [u8; boring_sys::EVP_MAX_MD_SIZE as usize],
     prk_len: usize,
     digest: MessageDigest,
@@ -181,7 +190,8 @@ impl tls13::HkdfExpander for HkdfExpander {
         let mut output = [0u8; boring_sys::EVP_MAX_MD_SIZE as usize];
         let output_len = self.hash_len();
 
-        self.expand_slice(info, &mut output[..output_len]).unwrap();
+        self.expand_slice(info, &mut output[..output_len])
+            .expect("failed hkdf expand");
 
         tls13::OkmBlock::new(&output[..output_len])
     }

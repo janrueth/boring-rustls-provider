@@ -6,7 +6,7 @@ use boring_additions::aead::Algorithm;
 use rustls::crypto::cipher::{self, make_tls12_aad, make_tls13_aad, Iv};
 use rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
 
-use crate::helper::error_stack_to_aead_error;
+use crate::helper::log_and_map;
 
 pub(crate) mod aes;
 pub(crate) mod chacha20;
@@ -47,6 +47,7 @@ impl<T: BoringAead> AeadCore for BoringAeadCrypter<T> {
 }
 
 impl<T: BoringAead> BoringAeadCrypter<T> {
+    /// Creates a new aead crypter
     pub fn new(iv: Iv, key: &[u8], tls_version: ProtocolVersion) -> Result<Self, ErrorStack> {
         assert!(match tls_version {
             #[cfg(feature = "tls12")]
@@ -63,7 +64,7 @@ impl<T: BoringAead> BoringAeadCrypter<T> {
         );
 
         let crypter = BoringAeadCrypter {
-            crypter: boring_additions::aead::Crypter::new(cipher, key)?,
+            crypter: boring_additions::aead::Crypter::new(&cipher, key)?,
             iv,
             tls_version,
             phantom: PhantomData,
@@ -82,7 +83,7 @@ impl<T: BoringAead> aead::AeadInPlace for BoringAeadCrypter<T> {
         let mut tag = Tag::<Self>::default();
         self.crypter
             .seal_in_place(nonce, associated_data, buffer, &mut tag)
-            .map_err(|e| error_stack_to_aead_error("seal_in_place", e))?;
+            .map_err(|e| log_and_map("seal_in_place", e, aead::Error))?;
 
         Ok(tag)
     }
@@ -96,7 +97,7 @@ impl<T: BoringAead> aead::AeadInPlace for BoringAeadCrypter<T> {
     ) -> aead::Result<()> {
         self.crypter
             .open_in_place(nonce, associated_data, buffer, tag)
-            .map_err(|e| error_stack_to_aead_error("open_in_place", e))?;
+            .map_err(|e| log_and_map("open_in_place", e, aead::Error))?;
         Ok(())
     }
 }

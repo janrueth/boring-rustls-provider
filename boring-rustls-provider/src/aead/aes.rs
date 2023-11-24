@@ -3,11 +3,10 @@ use aead::consts::{U12, U16};
 use boring_additions::aead::Algorithm;
 use rustls::{crypto::cipher, ConnectionTrafficSecrets};
 
+/// Aes128 AEAD cipher
 pub struct Aes128 {}
 
 impl BoringAead for Aes128 {}
-unsafe impl Send for Aes128 {}
-unsafe impl Sync for Aes128 {}
 
 impl BoringCipher for Aes128 {
     fn new_cipher() -> Algorithm {
@@ -37,11 +36,10 @@ impl aead::AeadCore for Aes128 {
     type CiphertextOverhead = U16;
 }
 
+/// Aes256 AEAD cipher
 pub struct Aes256 {}
 
 impl BoringAead for Aes256 {}
-unsafe impl Send for Aes256 {}
-unsafe impl Sync for Aes256 {}
 
 impl BoringCipher for Aes256 {
     fn new_cipher() -> Algorithm {

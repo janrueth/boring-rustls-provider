@@ -38,11 +38,14 @@ unsafe impl ForeignType for HmacCtx {
 impl Clone for HmacCtx {
     fn clone(&self) -> Self {
         unsafe {
-            let ctx = HmacCtx::from_ptr(cvt_p(boring_sys::HMAC_CTX_new()).unwrap());
-
-            cvt(boring_sys::HMAC_CTX_copy(ctx.as_ptr(), self.0.as_ptr())).unwrap();
-            ctx
+            cvt_p(boring_sys::HMAC_CTX_new())
+                .map(|ctx| HmacCtx::from_ptr(ctx))
+                .and_then(|ctx| {
+                    cvt(boring_sys::HMAC_CTX_copy(ctx.as_ptr(), self.0.as_ptr()))?;
+                    Ok(ctx)
+                })
         }
+        .expect("failed cloning hmac ctx")
     }
 }
 
