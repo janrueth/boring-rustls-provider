@@ -159,21 +159,21 @@ mod tests {
     fn in_out() {
         let key = Crypter::new(super::Algorithm::aes_128_gcm(), &[0u8; 16]).unwrap();
         let nonce = [0u8; 12];
-        let associated_data = "this is signed".as_bytes();
+        let associated_data = b"this is signed";
         let mut buffer = Vec::with_capacity(26);
-        buffer.push('A' as u8);
-        buffer.push('B' as u8);
-        buffer.push('C' as u8);
-        buffer.push('D' as u8);
-        buffer.push('E' as u8);
+        buffer.push(b'A');
+        buffer.push(b'B');
+        buffer.push(b'C');
+        buffer.push(b'D');
+        buffer.push(b'E');
 
         let mut tag = [0u8; 16];
-        key.seal_in_place(&nonce, &associated_data, buffer.as_mut_slice(), &mut tag)
+        key.seal_in_place(&nonce, associated_data, buffer.as_mut_slice(), &mut tag)
             .unwrap();
 
         println!("Encrypted: {:02X?}, Tag: {:02X?}", buffer, tag);
 
-        key.open_in_place(&nonce, &associated_data, buffer.as_mut_slice(), &tag[..])
+        key.open_in_place(&nonce, associated_data, buffer.as_mut_slice(), &tag[..])
             .unwrap();
 
         println!("Plaintext: {}", String::from_utf8(buffer).unwrap());

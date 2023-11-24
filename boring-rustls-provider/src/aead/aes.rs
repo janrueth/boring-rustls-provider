@@ -10,7 +10,7 @@ unsafe impl Send for Aes128 {}
 unsafe impl Sync for Aes128 {}
 
 impl BoringCipher for Aes128 {
-    fn new() -> Algorithm {
+    fn new_cipher() -> Algorithm {
         Algorithm::aes_128_gcm()
     }
 
@@ -44,7 +44,7 @@ unsafe impl Send for Aes256 {}
 unsafe impl Sync for Aes256 {}
 
 impl BoringCipher for Aes256 {
-    fn new() -> Algorithm {
+    fn new_cipher() -> Algorithm {
         Algorithm::aes_256_gcm()
     }
 
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn ensure_aes128_aead_core() {
-        let alg = Aes128::new();
+        let alg = Aes128::new_cipher();
         let nonce = Nonce::<Aes128>::default();
         assert_eq!(nonce.len(), alg.nonce_len());
         let tag = Tag::<Aes128>::default();
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn ensure_aes256_aead_core() {
-        let alg = Aes256::new();
+        let alg = Aes256::new_cipher();
         let nonce = Nonce::<Aes256>::default();
         assert_eq!(nonce.len(), alg.nonce_len());
         let tag = Tag::<Aes256>::default();

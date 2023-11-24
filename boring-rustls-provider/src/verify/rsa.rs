@@ -87,8 +87,7 @@ fn rsa_verifier_from_params(
     digest: MessageDigest,
     padding: Padding,
 ) -> boring::sign::Verifier {
-    let mut verifier =
-        boring::sign::Verifier::new(digest.clone(), key).expect("failed getting verifier");
+    let mut verifier = boring::sign::Verifier::new(digest, key).expect("failed getting verifier");
     verifier
         .set_rsa_padding(padding)
         .expect("failed setting padding");

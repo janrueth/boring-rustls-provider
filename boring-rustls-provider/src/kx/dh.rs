@@ -110,8 +110,8 @@ mod tests {
         let alice = DhKeyExchange::generate_ffdhe_2048().unwrap();
         let bob = DhKeyExchange::generate_ffdhe_2048().unwrap();
 
-        let shared_secret1 = alice.diffie_hellman(&bob.pub_key()).unwrap();
-        let shared_secret2 = bob.diffie_hellman(&alice.pub_key()).unwrap();
+        let shared_secret1 = alice.diffie_hellman(bob.pub_key()).unwrap();
+        let shared_secret2 = bob.diffie_hellman(alice.pub_key()).unwrap();
 
         assert_eq!(shared_secret1, shared_secret2)
     }

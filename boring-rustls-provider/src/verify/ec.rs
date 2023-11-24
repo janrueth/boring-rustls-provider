@@ -75,8 +75,7 @@ fn ec_verifier_from_params(
     key: &boring::pkey::PKeyRef<boring::pkey::Public>,
     digest: MessageDigest,
 ) -> boring::sign::Verifier {
-    let verifier =
-        boring::sign::Verifier::new(digest.clone(), key).expect("failed getting verifier");
+    let verifier = boring::sign::Verifier::new(digest, key).expect("failed getting verifier");
 
     verifier
 }
