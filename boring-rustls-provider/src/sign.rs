@@ -58,7 +58,7 @@ fn rsa_signer_from_params(
     digest: MessageDigest,
     padding: Padding,
 ) -> Signer {
-    let mut signer = Signer::new(digest.clone(), key).expect("failed getting signer");
+    let mut signer = Signer::new(digest, key).expect("failed getting signer");
     signer
         .set_rsa_padding(padding)
         .expect("failed setting padding");

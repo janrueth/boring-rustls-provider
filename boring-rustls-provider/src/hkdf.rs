@@ -1,24 +1,25 @@
 use std::marker::PhantomData;
 
+use boring::hash::MessageDigest;
 use rustls::crypto::tls13::{self, Hkdf as RustlsHkdf};
 
 use crate::helper::{cvt, cvt_p};
 
 pub trait BoringHash: Send + Sync {
-    fn new() -> boring::hash::MessageDigest;
+    fn new_hash() -> MessageDigest;
 }
 
 pub struct Sha256();
 impl BoringHash for Sha256 {
-    fn new() -> boring::hash::MessageDigest {
-        boring::hash::MessageDigest::sha256()
+    fn new_hash() -> MessageDigest {
+        MessageDigest::sha256()
     }
 }
 
 pub struct Sha384();
 impl BoringHash for Sha384 {
-    fn new() -> boring::hash::MessageDigest {
-        boring::hash::MessageDigest::sha384()
+    fn new_hash() -> MessageDigest {
+        MessageDigest::sha384()
     }
 }
 
@@ -38,7 +39,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         &self,
         salt: Option<&[u8]>,
     ) -> Box<dyn rustls::crypto::tls13::HkdfExpander> {
-        let hash_size = T::new().size();
+        let hash_size = T::new_hash().size();
 
         let secret = [0u8; boring_sys::EVP_MAX_MD_SIZE as usize];
         let secret_len = hash_size;
@@ -54,7 +55,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         salt: Option<&[u8]>,
         secret: &[u8],
     ) -> Box<dyn rustls::crypto::tls13::HkdfExpander> {
-        let digest = T::new();
+        let digest = T::new_hash();
         let hash_size = digest.size();
 
         let mut prk = [0u8; boring_sys::EVP_MAX_MD_SIZE as usize];
@@ -101,7 +102,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         Box::new(HkdfExpander {
             prk,
             prk_len,
-            digest: T::new(),
+            digest: T::new_hash(),
         })
     }
 
@@ -110,7 +111,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         key: &rustls::crypto::tls13::OkmBlock,
         message: &[u8],
     ) -> rustls::crypto::hmac::Tag {
-        let digest = T::new();
+        let digest = T::new_hash();
         let mut hash = [0u8; boring_sys::EVP_MAX_MD_SIZE as usize];
         let mut hash_len = 0u32;
         unsafe {
@@ -132,7 +133,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
 pub struct HkdfExpander {
     prk: [u8; boring_sys::EVP_MAX_MD_SIZE as usize],
     prk_len: usize,
-    digest: boring::hash::MessageDigest,
+    digest: MessageDigest,
 }
 
 impl tls13::HkdfExpander for HkdfExpander {

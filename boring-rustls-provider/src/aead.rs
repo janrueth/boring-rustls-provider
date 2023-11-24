@@ -13,7 +13,7 @@ pub(crate) mod chacha20;
 
 pub(crate) trait BoringCipher {
     /// Constructs a new instance of this cipher as an AEAD algorithm
-    fn new() -> Algorithm;
+    fn new_cipher() -> Algorithm;
     /// The key size in bytes
     fn key_size() -> usize;
     /// The IV's fixed length (Not the full IV length, only the part that doesn't change).
@@ -55,7 +55,7 @@ impl<T: BoringAead> BoringAeadCrypter<T> {
             _ => false,
         });
 
-        let cipher = <T as BoringCipher>::new();
+        let cipher = <T as BoringCipher>::new_cipher();
 
         assert_eq!(
             cipher.nonce_len(),
@@ -81,7 +81,7 @@ impl<T: BoringAead> aead::AeadInPlace for BoringAeadCrypter<T> {
     ) -> aead::Result<Tag<Self>> {
         let mut tag = Tag::<Self>::default();
         self.crypter
-            .seal_in_place(&nonce, &associated_data, buffer, &mut tag)
+            .seal_in_place(nonce, associated_data, buffer, &mut tag)
             .map_err(|e| error_stack_to_aead_error("seal_in_place", e))?;
 
         Ok(tag)
@@ -95,7 +95,7 @@ impl<T: BoringAead> aead::AeadInPlace for BoringAeadCrypter<T> {
         tag: &Tag<Self>,
     ) -> aead::Result<()> {
         self.crypter
-            .open_in_place(&nonce, &associated_data, buffer, tag)
+            .open_in_place(nonce, associated_data, buffer, tag)
             .map_err(|e| error_stack_to_aead_error("open_in_place", e))?;
         Ok(())
     }

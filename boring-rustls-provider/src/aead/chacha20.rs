@@ -13,7 +13,7 @@ unsafe impl Send for ChaCha20Poly1305 {}
 unsafe impl Sync for ChaCha20Poly1305 {}
 
 impl BoringCipher for ChaCha20Poly1305 {
-    fn new() -> Algorithm {
+    fn new_cipher() -> Algorithm {
         Algorithm::chacha20_poly1305()
     }
 
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn ensure_aead_core() {
-        let alg = ChaCha20Poly1305::new();
+        let alg = ChaCha20Poly1305::new_cipher();
         let nonce = Nonce::<ChaCha20Poly1305>::default();
         assert_eq!(nonce.len(), alg.nonce_len());
         let tag = Tag::<ChaCha20Poly1305>::default();
