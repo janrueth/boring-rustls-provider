@@ -1,5 +1,6 @@
 use std::ptr;
 
+use boring::error::ErrorStack;
 use foreign_types::ForeignType;
 use rustls::SignatureScheme;
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
@@ -20,7 +21,8 @@ impl SignatureVerificationAlgorithm for BoringEdVerifier {
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), rustls_pki_types::InvalidSignature> {
-        let public_key = ed_public_key_for_scheme(public_key, self.0)?;
+        let public_key =
+            ed_public_key_for_scheme(public_key, self.0).map_err(|_| InvalidSignature)?;
         let mut verifier = ed_verifier_from_params(public_key.as_ref());
 
         verifier.verify_oneshot(signature, message).map_or_else(
@@ -58,7 +60,7 @@ fn ed_verifier_from_params(
 fn ed_public_key_for_scheme(
     spki_spk: &[u8],
     scheme: SignatureScheme,
-) -> Result<boring::pkey::PKey<boring::pkey::Public>, InvalidSignature> {
+) -> Result<boring::pkey::PKey<boring::pkey::Public>, ErrorStack> {
     let nid = boring::nid::Nid::from_raw(match scheme {
         SignatureScheme::ED25519 => boring_sys::EVP_PKEY_ED25519,
         SignatureScheme::ED448 => boring_sys::EVP_PKEY_ED448,
@@ -70,15 +72,14 @@ fn ed_public_key_for_scheme(
 pub fn ed_public_key(
     spki_spk: &[u8],
     nid: boring::nid::Nid,
-) -> Result<boring::pkey::PKey<boring::pkey::Public>, InvalidSignature> {
+) -> Result<boring::pkey::PKey<boring::pkey::Public>, ErrorStack> {
     Ok(unsafe {
         let pkey = cvt_p(boring_sys::EVP_PKEY_new_raw_public_key(
             nid.as_raw(),
             ptr::null_mut(),
             spki_spk.as_ptr(),
             spki_spk.len(),
-        ))
-        .map_err(|_| InvalidSignature)?;
+        ))?;
 
         boring::pkey::PKey::from_ptr(pkey)
     })
