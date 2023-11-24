@@ -1,0 +1,28 @@
+name: Rust check
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Check fmt
+      run: cargo fmt --all --check
+    - name: Lint
+      run: cargo clippy --workspace --all-targets -F "logging,tls12"
+    - name: Tests usual
+      run: cargo test --all-targets -F "logging,tls12"
+    - name: Build usual
+      run: cargo build --all-targets -F "logging,tls12"
