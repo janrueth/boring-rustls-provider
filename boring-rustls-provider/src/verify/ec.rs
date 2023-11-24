@@ -1,4 +1,4 @@
-use boring::hash::MessageDigest;
+use boring::{error::ErrorStack, hash::MessageDigest};
 use rustls::SignatureScheme;
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
@@ -18,8 +18,10 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
         signature: &[u8],
     ) -> Result<(), rustls_pki_types::InvalidSignature> {
         let (group, mut bn_ctx) = setup_ec_key(self.0);
-        let ec_point = ec_point(group.as_ref(), bn_ctx.as_mut(), public_key)?;
-        let public_key = ec_public_key(group.as_ref(), ec_point.as_ref())?;
+        let ec_point =
+            ec_point(group.as_ref(), bn_ctx.as_mut(), public_key).map_err(|_| InvalidSignature)?;
+        let public_key =
+            ec_public_key(group.as_ref(), ec_point.as_ref()).map_err(|_| InvalidSignature)?;
         let mut verifier = match self.0 {
             SignatureScheme::ECDSA_NISTP256_SHA256 => {
                 ec_verifier_from_params(public_key.as_ref(), MessageDigest::sha256())
@@ -100,16 +102,13 @@ pub(crate) fn ec_point(
     group: &boring::ec::EcGroupRef,
     bignum_ctx: &mut boring::bn::BigNumContextRef,
     spki_spk: &[u8],
-) -> Result<boring::ec::EcPoint, InvalidSignature> {
-    boring::ec::EcPoint::from_bytes(group, spki_spk, bignum_ctx).map_err(|_| InvalidSignature)
+) -> Result<boring::ec::EcPoint, ErrorStack> {
+    boring::ec::EcPoint::from_bytes(group, spki_spk, bignum_ctx)
 }
 
 pub(crate) fn ec_public_key(
     group: &boring::ec::EcGroupRef,
     ec_point: &boring::ec::EcPointRef,
-) -> Result<boring::pkey::PKey<boring::pkey::Public>, InvalidSignature> {
-    boring::pkey::PKey::from_ec_key(
-        boring::ec::EcKey::from_public_key(group, ec_point).map_err(|_| InvalidSignature)?,
-    )
-    .map_err(|_| InvalidSignature)
+) -> Result<boring::pkey::PKey<boring::pkey::Public>, ErrorStack> {
+    boring::pkey::PKey::from_ec_key(boring::ec::EcKey::from_public_key(group, ec_point)?)
 }

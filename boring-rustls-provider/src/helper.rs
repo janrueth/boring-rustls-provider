@@ -30,13 +30,17 @@ pub(crate) fn cvt(r: c_int) -> Result<i32, ErrorStack> {
     }
 }
 
-#[cfg(feature = "log")]
 pub(crate) fn error_stack_to_aead_error(func: &'static str, e: ErrorStack) -> aead::Error {
+    map_error_stack(func, e, aead::Error)
+}
+
+#[cfg(feature = "log")]
+pub(crate) fn map_error_stack<T>(func: &'static str, e: ErrorStack, mapped: T) -> T {
     trace!("failed {}, error: {}", func, e);
-    aead::Error
+    mapped
 }
 
 #[cfg(not(feature = "log"))]
-pub(crate) fn error_stack_to_aead_error(_: &'static str, _: ErrorStack) -> aead::Error {
-    aead::Error
+pub(crate) fn map_error_stack<T>(func: &'static str, e: ErrorStack, mapped: T) -> T {
+    mapped
 }

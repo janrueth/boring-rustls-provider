@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
-use boring::{hash::MessageDigest, pkey::Id, rsa::Padding, sign::RsaPssSaltlen};
-use rustls::{
-    sign::{Signer, SigningKey},
-    SignatureScheme,
+use boring::{
+    hash::MessageDigest,
+    pkey::{Id, PKeyRef, Private},
+    rsa::Padding,
+    sign::{RsaPssSaltlen, Signer},
 };
+use rustls::{sign::SigningKey, SignatureScheme};
 use rustls_pki_types::PrivateKeyDer;
 
 const ALL_RSA_SCHEMES: &[SignatureScheme] = &[
@@ -23,10 +25,7 @@ const ALL_EC_SCHEMES: &[SignatureScheme] = &[
 ];
 
 #[derive(Debug)]
-pub struct BoringPrivateKey(
-    Arc<boring::pkey::PKey<boring::pkey::Private>>,
-    rustls::SignatureAlgorithm,
-);
+pub struct BoringPrivateKey(Arc<boring::pkey::PKey<Private>>, rustls::SignatureAlgorithm);
 
 impl TryFrom<PrivateKeyDer<'static>> for BoringPrivateKey {
     type Error = rustls::Error;
@@ -55,11 +54,11 @@ impl TryFrom<PrivateKeyDer<'static>> for BoringPrivateKey {
 }
 
 fn rsa_signer_from_params(
-    key: &boring::pkey::PKeyRef<boring::pkey::Private>,
+    key: &PKeyRef<Private>,
     digest: MessageDigest,
     padding: Padding,
-) -> boring::sign::Signer {
-    let mut signer = boring::sign::Signer::new(digest.clone(), key).expect("failed getting signer");
+) -> Signer {
+    let mut signer = Signer::new(digest.clone(), key).expect("failed getting signer");
     signer
         .set_rsa_padding(padding)
         .expect("failed setting padding");
@@ -75,11 +74,8 @@ fn rsa_signer_from_params(
     signer
 }
 
-fn ec_signer_from_params(
-    key: &boring::pkey::PKeyRef<boring::pkey::Private>,
-    digest: MessageDigest,
-) -> boring::sign::Signer {
-    let signer = boring::sign::Signer::new(digest, key).expect("failed getting signer");
+fn ec_signer_from_params(key: &PKeyRef<Private>, digest: MessageDigest) -> Signer {
+    let signer = Signer::new(digest, key).expect("failed getting signer");
     signer
 }
 
@@ -125,13 +121,10 @@ impl SigningKey for BoringPrivateKey {
 }
 
 #[derive(Debug)]
-pub struct BoringSigner(
-    Arc<boring::pkey::PKey<boring::pkey::Private>>,
-    rustls::SignatureScheme,
-);
+pub struct BoringSigner(Arc<boring::pkey::PKey<Private>>, rustls::SignatureScheme);
 
 impl BoringSigner {
-    fn get_signer(&self) -> boring::sign::Signer {
+    fn get_signer(&self) -> Signer {
         match self.1 {
             SignatureScheme::RSA_PKCS1_SHA256 => {
                 rsa_signer_from_params(self.0.as_ref(), MessageDigest::sha256(), Padding::PKCS1)
@@ -163,17 +156,19 @@ impl BoringSigner {
                 ec_signer_from_params(self.0.as_ref(), MessageDigest::sha512())
             }
 
-            SignatureScheme::ED25519 => boring::sign::Signer::new_without_digest(self.0.as_ref())
-                .expect("failed getting signer"),
-            SignatureScheme::ED448 => boring::sign::Signer::new_without_digest(self.0.as_ref())
-                .expect("failed getting signer"),
+            SignatureScheme::ED25519 => {
+                Signer::new_without_digest(self.0.as_ref()).expect("failed getting signer")
+            }
+            SignatureScheme::ED448 => {
+                Signer::new_without_digest(self.0.as_ref()).expect("failed getting signer")
+            }
 
             _ => unimplemented!(),
         }
     }
 }
 
-impl Signer for BoringSigner {
+impl rustls::sign::Signer for BoringSigner {
     fn sign(&self, message: &[u8]) -> Result<Vec<u8>, rustls::Error> {
         let signer = self.get_signer();
         let mut msg_with_sig =

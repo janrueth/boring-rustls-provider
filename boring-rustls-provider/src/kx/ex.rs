@@ -14,7 +14,7 @@ use foreign_types::ForeignType;
 use rustls::crypto;
 use spki::der::Decode;
 
-use crate::helper::{cvt, cvt_p};
+use crate::helper::{cvt, cvt_p, map_error_stack};
 
 use super::DhKeyType;
 
@@ -25,26 +25,39 @@ pub struct ExKeyExchange {
 }
 
 impl ExKeyExchange {
+    /// Creates a new KeyExchange using a random
+    /// private key for the X25519 Edwards curve
     pub fn with_x25519() -> Result<Self, ErrorStack> {
         Self::ed_from_curve(Nid::from_raw(boring_sys::NID_X25519))
     }
 
+    /// Creates a new KeyExchange using a random
+    /// private key for the X448 Edwards curve
     pub fn with_x448() -> Result<Self, ErrorStack> {
         Self::ed_from_curve(Nid::from_raw(boring_sys::NID_X448))
     }
 
+    /// Creates a new KeyExchange using a random
+    /// private key for sepc256r1 curve
+    /// Also known as X9_62_PRIME256V1
     pub fn with_secp256r1() -> Result<Self, ErrorStack> {
         Self::ec_from_curve(Nid::X9_62_PRIME256V1)
     }
 
+    /// Creates a new KeyExchange using a random
+    /// private key for sepc384r1 curve
     pub fn with_secp384r1() -> Result<Self, ErrorStack> {
         Self::ec_from_curve(Nid::SECP384R1)
     }
 
+    /// Creates a new KeyExchange using a random
+    /// private key for sep521r1 curve
     pub fn with_secp521r1() -> Result<Self, ErrorStack> {
         Self::ec_from_curve(Nid::SECP521R1)
     }
 
+    /// Allows getting a new KeyExchange using Eliptic Curves
+    /// on the specified curve
     fn ec_from_curve(nid: Nid) -> Result<Self, ErrorStack> {
         let ec_group = EcGroup::from_curve_name(nid)?;
         let ec_key = EcKey::generate(&ec_group)?;
@@ -58,6 +71,8 @@ impl ExKeyExchange {
         })
     }
 
+    /// Allows getting a new KeyExchange using Edwards Curves
+    /// on the specified curve
     fn ed_from_curve(nid: Nid) -> Result<Self, ErrorStack> {
         let pkey_ctx = unsafe {
             EvpPkeyCtx::from_ptr(cvt_p(boring_sys::EVP_PKEY_CTX_new_id(
@@ -85,6 +100,7 @@ impl ExKeyExchange {
         })
     }
 
+    /// Decodes a SPKI public key to it's raw public key component
     fn raw_public_key(pkey: &PKeyRef<Private>) -> Vec<u8> {
         let spki = pkey.public_key_to_der().unwrap();
 
@@ -94,6 +110,29 @@ impl ExKeyExchange {
         // return the raw public key as a new vec
         Vec::from(key.subject_public_key.as_bytes().unwrap())
     }
+
+    /// Derives a shared secret using the peer's raw public key
+    fn diffie_hellman(&self, peer_pub_key: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+        let peerkey = match &self.key_type {
+            DhKeyType::EC((group, _)) => {
+                let mut bn_ctx = boring::bn::BigNumContext::new()?;
+
+                let point = crate::verify::ec::ec_point(group, &mut bn_ctx, peer_pub_key)?;
+
+                crate::verify::ec::ec_public_key(group, point.as_ref())?
+            }
+            DhKeyType::ED(nid) => {
+                crate::verify::ed::ed_public_key(peer_pub_key, Nid::from_raw(*nid))?
+            }
+            _ => unimplemented!(),
+        };
+
+        let mut deriver = boring::derive::Deriver::new(&self.own_key)?;
+
+        deriver.set_peer(&peerkey)?;
+
+        deriver.derive_to_vec()
+    }
 }
 
 impl crypto::ActiveKeyExchange for ExKeyExchange {
@@ -101,33 +140,15 @@ impl crypto::ActiveKeyExchange for ExKeyExchange {
         self: Box<Self>,
         peer_pub_key: &[u8],
     ) -> Result<crypto::SharedSecret, rustls::Error> {
-        let peerkey = match &self.key_type {
-            DhKeyType::EC((group, _)) => {
-                let mut bn_ctx = boring::bn::BigNumContext::new()
-                    .map_err(|x| rustls::Error::General(x.to_string()))?;
-
-                let point = crate::verify::ec::ec_point(group, &mut bn_ctx, peer_pub_key)
-                    .map_err(|_| rustls::Error::from(rustls::PeerMisbehaved::InvalidKeyShare))?;
-
-                crate::verify::ec::ec_public_key(group, point.as_ref())
-                    .map_err(|_| rustls::Error::from(rustls::PeerMisbehaved::InvalidKeyShare))?
-            }
-            DhKeyType::ED(nid) => {
-                crate::verify::ed::ed_public_key(peer_pub_key, Nid::from_raw(*nid))
-                    .map_err(|_| rustls::Error::from(rustls::PeerMisbehaved::InvalidKeyShare))?
-            }
-            _ => unimplemented!(),
-        };
-
-        let mut deriver = boring::derive::Deriver::new(&self.own_key).unwrap();
-
-        deriver
-            .set_peer(&peerkey)
-            .map_err(|_| rustls::Error::from(rustls::PeerMisbehaved::InvalidKeyShare))?;
-
-        Ok(crypto::SharedSecret::from(
-            deriver.derive_to_vec().unwrap().as_slice(),
-        ))
+        self.diffie_hellman(peer_pub_key)
+            .map(|x| crypto::SharedSecret::from(x.as_slice()))
+            .map_err(|e| {
+                map_error_stack(
+                    "ex.diffie_hellman",
+                    e,
+                    rustls::Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare),
+                )
+            })
     }
 
     fn pub_key(&self) -> &[u8] {
@@ -153,19 +174,23 @@ mod tests {
 
     #[test]
     fn test_derive_ec() {
-        let kx = Box::new(ExKeyExchange::with_secp256r1().unwrap());
-        let kx1 = ExKeyExchange::with_secp256r1().unwrap();
+        let alice = Box::new(ExKeyExchange::with_secp256r1().unwrap());
+        let bob = ExKeyExchange::with_secp256r1().unwrap();
 
-        kx.group();
-        kx.complete(kx1.pub_key()).unwrap();
+        assert_eq!(
+            alice.diffie_hellman(bob.pub_key()).unwrap(),
+            bob.diffie_hellman(alice.pub_key()).unwrap()
+        );
     }
 
     #[test]
     fn test_derive_ed() {
-        let kx = Box::new(ExKeyExchange::with_x25519().unwrap());
-        let kx1 = ExKeyExchange::with_x25519().unwrap();
+        let alice = Box::new(ExKeyExchange::with_x25519().unwrap());
+        let bob = ExKeyExchange::with_x25519().unwrap();
 
-        kx.group();
-        kx.complete(kx1.pub_key()).unwrap();
+        assert_eq!(
+            alice.diffie_hellman(bob.pub_key()).unwrap(),
+            bob.diffie_hellman(alice.pub_key()).unwrap()
+        );
     }
 }
