@@ -1,3 +1,4 @@
+use boring::hash::{Hasher, MessageDigest};
 use rustls::crypto::hash;
 
 pub const SHA256: &dyn hash::Hash = &Hash(boring::nid::Nid::SHA256);
@@ -7,8 +8,8 @@ pub struct Hash(pub boring::nid::Nid);
 
 impl hash::Hash for Hash {
     fn start(&self) -> Box<dyn hash::Context> {
-        let digest = boring::hash::MessageDigest::from_nid(self.0).unwrap();
-        let hasher = boring::hash::Hasher::new(digest).unwrap();
+        let digest = MessageDigest::from_nid(self.0).expect("failed getting hash digest");
+        let hasher = Hasher::new(digest).expect("failed getting hasher");
         Box::new(HasherContext(hasher))
     }
 
@@ -21,24 +22,26 @@ impl hash::Hash for Hash {
     fn algorithm(&self) -> hash::HashAlgorithm {
         match self.0 {
             boring::nid::Nid::SHA256 => hash::HashAlgorithm::SHA256,
+            boring::nid::Nid::SHA384 => hash::HashAlgorithm::SHA384,
+            boring::nid::Nid::SHA512 => hash::HashAlgorithm::SHA512,
             _ => unimplemented!(),
         }
     }
 
     fn output_len(&self) -> usize {
-        boring::hash::MessageDigest::from_nid(self.0)
-            .unwrap()
+        MessageDigest::from_nid(self.0)
+            .expect("failed getting digest")
             .size()
     }
 }
 
-struct HasherContext(boring::hash::Hasher);
+struct HasherContext(Hasher);
 
 impl hash::Context for HasherContext {
     fn fork_finish(&self) -> hash::Output {
         let mut cloned = self.0.clone();
 
-        hash::Output::new(&cloned.finish().unwrap()[..])
+        hash::Output::new(&cloned.finish().expect("failed finishing hash")[..])
     }
 
     fn fork(&self) -> Box<dyn hash::Context> {
@@ -46,11 +49,11 @@ impl hash::Context for HasherContext {
     }
 
     fn finish(mut self: Box<Self>) -> hash::Output {
-        hash::Output::new(&self.0.finish().unwrap()[..])
+        hash::Output::new(&self.0.finish().expect("failed finishing hash")[..])
     }
 
     fn update(&mut self, data: &[u8]) {
-        self.0.update(data).unwrap();
+        self.0.update(data).expect("failed adding data to hash");
     }
 }
 

@@ -2,6 +2,8 @@ use boring::{error::ErrorStack, hash::MessageDigest};
 use rustls::SignatureScheme;
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
+use crate::helper;
+
 pub struct BoringEcVerifier(SignatureScheme);
 
 impl BoringEcVerifier {
@@ -17,11 +19,15 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), rustls_pki_types::InvalidSignature> {
-        let (group, mut bn_ctx) = setup_ec_key(self.0);
-        let ec_point =
-            ec_point(group.as_ref(), bn_ctx.as_mut(), public_key).map_err(|_| InvalidSignature)?;
-        let public_key =
-            ec_public_key(group.as_ref(), ec_point.as_ref()).map_err(|_| InvalidSignature)?;
+        let (group, mut bn_ctx) = setup_ec_key(self.0)
+            .map_err(|e| helper::log_and_map("setup_ec_key", e, InvalidSignature))?;
+
+        let ec_point = get_ec_point(group.as_ref(), bn_ctx.as_mut(), public_key)
+            .map_err(|e| helper::log_and_map("ec_point", e, InvalidSignature))?;
+
+        let public_key = create_public_key(group.as_ref(), ec_point.as_ref())
+            .map_err(|e| helper::log_and_map("ec_public_key", e, InvalidSignature))?;
+
         let mut verifier = match self.0 {
             SignatureScheme::ECDSA_NISTP256_SHA256 => {
                 ec_verifier_from_params(public_key.as_ref(), MessageDigest::sha256())
@@ -34,9 +40,11 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
             }
 
             _ => unimplemented!(),
-        };
+        }
+        .map_err(|e| helper::log_and_map("ec_verifier_from_params", e, InvalidSignature))?;
+
         verifier.verify_oneshot(signature, message).map_or_else(
-            |_| Err(InvalidSignature),
+            |e| Err(helper::log_and_map("verify_oneshot", e, InvalidSignature)),
             |res| if res { Ok(()) } else { Err(InvalidSignature) },
         )
     }
@@ -74,30 +82,27 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
 fn ec_verifier_from_params(
     key: &boring::pkey::PKeyRef<boring::pkey::Public>,
     digest: MessageDigest,
-) -> boring::sign::Verifier {
-    let verifier = boring::sign::Verifier::new(digest, key).expect("failed getting verifier");
-
-    verifier
+) -> Result<boring::sign::Verifier, ErrorStack> {
+    boring::sign::Verifier::new(digest, key)
 }
 
-fn group_for_scheme(scheme: SignatureScheme) -> boring::ec::EcGroup {
+fn group_for_scheme(scheme: SignatureScheme) -> Result<boring::ec::EcGroup, ErrorStack> {
     let nid = match scheme {
         SignatureScheme::ECDSA_NISTP256_SHA256 => boring::nid::Nid::X9_62_PRIME256V1,
         SignatureScheme::ECDSA_NISTP384_SHA384 => boring::nid::Nid::SECP384R1,
         SignatureScheme::ECDSA_NISTP521_SHA512 => boring::nid::Nid::SECP521R1,
         _ => unimplemented!(),
     };
-    boring::ec::EcGroup::from_curve_name(nid).expect("failed getting verify curve")
+    boring::ec::EcGroup::from_curve_name(nid)
 }
 
-fn setup_ec_key(scheme: SignatureScheme) -> (boring::ec::EcGroup, boring::bn::BigNumContext) {
-    (
-        group_for_scheme(scheme),
-        boring::bn::BigNumContext::new().unwrap(),
-    )
+fn setup_ec_key(
+    scheme: SignatureScheme,
+) -> Result<(boring::ec::EcGroup, boring::bn::BigNumContext), ErrorStack> {
+    Ok((group_for_scheme(scheme)?, boring::bn::BigNumContext::new()?))
 }
 
-pub(crate) fn ec_point(
+pub(crate) fn get_ec_point(
     group: &boring::ec::EcGroupRef,
     bignum_ctx: &mut boring::bn::BigNumContextRef,
     spki_spk: &[u8],
@@ -105,7 +110,7 @@ pub(crate) fn ec_point(
     boring::ec::EcPoint::from_bytes(group, spki_spk, bignum_ctx)
 }
 
-pub(crate) fn ec_public_key(
+pub(crate) fn create_public_key(
     group: &boring::ec::EcGroupRef,
     ec_point: &boring::ec::EcPointRef,
 ) -> Result<boring::pkey::PKey<boring::pkey::Public>, ErrorStack> {

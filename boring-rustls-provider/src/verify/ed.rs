@@ -5,7 +5,7 @@ use foreign_types::ForeignType;
 use rustls::SignatureScheme;
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
-use crate::helper::cvt_p;
+use crate::helper::{cvt_p, log_and_map};
 
 pub struct BoringEdVerifier(SignatureScheme);
 
@@ -21,9 +21,11 @@ impl SignatureVerificationAlgorithm for BoringEdVerifier {
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), rustls_pki_types::InvalidSignature> {
-        let public_key =
-            ed_public_key_for_scheme(public_key, self.0).map_err(|_| InvalidSignature)?;
-        let mut verifier = ed_verifier_from_params(public_key.as_ref());
+        let public_key = ed_public_key_for_scheme(public_key, self.0)
+            .map_err(|e| log_and_map("ed_public_key_for_scheme", e, InvalidSignature))?;
+
+        let mut verifier = ed_verifier_from_params(public_key.as_ref())
+            .map_err(|e| log_and_map("ed_verifier_from_params", e, InvalidSignature))?;
 
         verifier.verify_oneshot(signature, message).map_or_else(
             |_| Err(InvalidSignature),
@@ -50,11 +52,8 @@ impl SignatureVerificationAlgorithm for BoringEdVerifier {
 
 fn ed_verifier_from_params(
     key: &boring::pkey::PKeyRef<boring::pkey::Public>,
-) -> boring::sign::Verifier {
-    let verifier =
-        boring::sign::Verifier::new_without_digest(key).expect("failed getting verifier");
-
-    verifier
+) -> Result<boring::sign::Verifier, ErrorStack> {
+    boring::sign::Verifier::new_without_digest(key)
 }
 
 fn ed_public_key_for_scheme(
@@ -66,10 +65,10 @@ fn ed_public_key_for_scheme(
         SignatureScheme::ED448 => boring_sys::EVP_PKEY_ED448,
         _ => unimplemented!(),
     });
-    ed_public_key(spki_spk, nid)
+    public_key(spki_spk, nid)
 }
 
-pub fn ed_public_key(
+pub fn public_key(
     spki_spk: &[u8],
     nid: boring::nid::Nid,
 ) -> Result<boring::pkey::PKey<boring::pkey::Public>, ErrorStack> {

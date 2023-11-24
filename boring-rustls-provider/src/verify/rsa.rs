@@ -1,7 +1,15 @@
-use boring::{hash::MessageDigest, rsa::Padding, sign::RsaPssSaltlen};
+use boring::{
+    bn::BigNum,
+    hash::MessageDigest,
+    pkey::PKey,
+    rsa::{Padding, Rsa},
+    sign::RsaPssSaltlen,
+};
 use rustls::SignatureScheme;
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 use spki::der::Reader;
+
+use crate::helper::log_and_map;
 
 pub struct BoringRsaVerifier(SignatureScheme);
 
@@ -105,18 +113,24 @@ fn rsa_verifier_from_params(
 
 pub(crate) fn decode_spki_spk(
     spki_spk: &[u8],
-) -> Result<boring::pkey::PKey<boring::pkey::Public>, InvalidSignature> {
+) -> Result<PKey<boring::pkey::Public>, InvalidSignature> {
     // public_key: unfortunately this is not a whole SPKI, but just the key material.
     // decode the two integers manually.
 
-    let mut reader = spki::der::SliceReader::new(spki_spk).map_err(|_| InvalidSignature)?;
-    let ne: [spki::der::asn1::UintRef; 2] = reader.decode().map_err(|_| InvalidSignature)?;
+    let mut reader = spki::der::SliceReader::new(spki_spk)
+        .map_err(|e| log_and_map("SliceReader::new", e, InvalidSignature))?;
+    let ne: [spki::der::asn1::UintRef; 2] = reader
+        .decode()
+        .map_err(|e| log_and_map("SliceReader::decode", e, InvalidSignature))?;
 
-    let n = boring::bn::BigNum::from_slice(ne[0].as_bytes()).map_err(|_| InvalidSignature)?;
-    let e = boring::bn::BigNum::from_slice(ne[1].as_bytes()).map_err(|_| InvalidSignature)?;
+    let n = BigNum::from_slice(ne[0].as_bytes())
+        .map_err(|e| log_and_map("BigNum::from_slice", e, InvalidSignature))?;
+    let e = BigNum::from_slice(ne[1].as_bytes())
+        .map_err(|e| log_and_map("BigNum::from_slice", e, InvalidSignature))?;
 
-    boring::pkey::PKey::from_rsa(
-        boring::rsa::Rsa::from_public_components(n, e).map_err(|_| InvalidSignature)?,
+    PKey::from_rsa(
+        Rsa::from_public_components(n, e)
+            .map_err(|e| log_and_map("Rsa::from_public_components", e, InvalidSignature))?,
     )
-    .map_err(|_| InvalidSignature)
+    .map_err(|e| log_and_map("Pkey::from_rsa", e, InvalidSignature))
 }

@@ -14,56 +14,59 @@ use foreign_types::ForeignType;
 use rustls::crypto;
 use spki::der::Decode;
 
-use crate::helper::{cvt, cvt_p, map_error_stack};
+use crate::helper::{cvt, cvt_p, log_and_map};
 
 use super::DhKeyType;
 
-pub struct ExKeyExchange {
+/// This type can be used to perform an
+/// Eliptic Curve or Edwards Curve key
+/// exchange.
+pub struct KeyExchange {
     own_key: PKey<Private>,
     pub_bytes: Vec<u8>,
     key_type: DhKeyType,
 }
 
-impl ExKeyExchange {
-    /// Creates a new KeyExchange using a random
-    /// private key for the X25519 Edwards curve
+impl KeyExchange {
+    /// Creates a new `KeyExchange` using a random
+    /// private key for the `X25519` Edwards curve
     pub fn with_x25519() -> Result<Self, ErrorStack> {
         Self::ed_from_curve(Nid::from_raw(boring_sys::NID_X25519))
     }
 
-    /// Creates a new KeyExchange using a random
-    /// private key for the X448 Edwards curve
+    /// Creates a new `KeyExchange` using a random
+    /// private key for the `X448` Edwards curve
     pub fn with_x448() -> Result<Self, ErrorStack> {
         Self::ed_from_curve(Nid::from_raw(boring_sys::NID_X448))
     }
 
-    /// Creates a new KeyExchange using a random
-    /// private key for sepc256r1 curve
-    /// Also known as X9_62_PRIME256V1
+    /// Creates a new `KeyExchange` using a random
+    /// private key for `sepc256r1` curve
+    /// Also known as `X9_62_PRIME256V1`
     pub fn with_secp256r1() -> Result<Self, ErrorStack> {
         Self::ec_from_curve(Nid::X9_62_PRIME256V1)
     }
 
-    /// Creates a new KeyExchange using a random
-    /// private key for sepc384r1 curve
+    /// Creates a new `KeyExchange` using a random
+    /// private key for `sepc384r1` curve
     pub fn with_secp384r1() -> Result<Self, ErrorStack> {
         Self::ec_from_curve(Nid::SECP384R1)
     }
 
-    /// Creates a new KeyExchange using a random
-    /// private key for sep521r1 curve
+    /// Creates a new `KeyExchange` using a random
+    /// private key for `sep521r1` curve
     pub fn with_secp521r1() -> Result<Self, ErrorStack> {
         Self::ec_from_curve(Nid::SECP521R1)
     }
 
-    /// Allows getting a new KeyExchange using Eliptic Curves
+    /// Allows getting a new `KeyExchange` using Eliptic Curves
     /// on the specified curve
     fn ec_from_curve(nid: Nid) -> Result<Self, ErrorStack> {
         let ec_group = EcGroup::from_curve_name(nid)?;
         let ec_key = EcKey::generate(&ec_group)?;
 
         let own_key = PKey::from_ec_key(ec_key)?;
-        let pub_bytes = Self::raw_public_key(&own_key);
+        let pub_bytes = Self::raw_public_key(&own_key)?;
         Ok(Self {
             own_key,
             pub_bytes,
@@ -71,7 +74,7 @@ impl ExKeyExchange {
         })
     }
 
-    /// Allows getting a new KeyExchange using Edwards Curves
+    /// Allows getting a new `KeyExchange` using Edwards Curves
     /// on the specified curve
     fn ed_from_curve(nid: Nid) -> Result<Self, ErrorStack> {
         let pkey_ctx = unsafe {
@@ -91,7 +94,7 @@ impl ExKeyExchange {
             PKey::from_ptr(pkey)
         };
 
-        let pub_bytes = Self::raw_public_key(&own_key);
+        let pub_bytes = Self::raw_public_key(&own_key)?;
 
         Ok(Self {
             own_key,
@@ -101,14 +104,19 @@ impl ExKeyExchange {
     }
 
     /// Decodes a SPKI public key to it's raw public key component
-    fn raw_public_key(pkey: &PKeyRef<Private>) -> Vec<u8> {
-        let spki = pkey.public_key_to_der().unwrap();
+    fn raw_public_key(pkey: &PKeyRef<Private>) -> Result<Vec<u8>, ErrorStack> {
+        let spki = pkey.public_key_to_der()?;
 
         // parse the key
-        let key = spki::SubjectPublicKeyInfoRef::from_der(spki.as_ref()).unwrap();
+        let pkey = spki::SubjectPublicKeyInfoRef::from_der(spki.as_ref())
+            .expect("failed parsing spki bytes");
 
         // return the raw public key as a new vec
-        Vec::from(key.subject_public_key.as_bytes().unwrap())
+        Ok(Vec::from(
+            pkey.subject_public_key
+                .as_bytes()
+                .expect("failed getting raw spki bytes"),
+        ))
     }
 
     /// Derives a shared secret using the peer's raw public key
@@ -117,13 +125,11 @@ impl ExKeyExchange {
             DhKeyType::EC((group, _)) => {
                 let mut bn_ctx = boring::bn::BigNumContext::new()?;
 
-                let point = crate::verify::ec::ec_point(group, &mut bn_ctx, peer_pub_key)?;
+                let point = crate::verify::ec::get_ec_point(group, &mut bn_ctx, peer_pub_key)?;
 
-                crate::verify::ec::ec_public_key(group, point.as_ref())?
+                crate::verify::ec::create_public_key(group, point.as_ref())?
             }
-            DhKeyType::ED(nid) => {
-                crate::verify::ed::ed_public_key(peer_pub_key, Nid::from_raw(*nid))?
-            }
+            DhKeyType::ED(nid) => crate::verify::ed::public_key(peer_pub_key, Nid::from_raw(*nid))?,
             _ => unimplemented!(),
         };
 
@@ -135,7 +141,7 @@ impl ExKeyExchange {
     }
 }
 
-impl crypto::ActiveKeyExchange for ExKeyExchange {
+impl crypto::ActiveKeyExchange for KeyExchange {
     fn complete(
         self: Box<Self>,
         peer_pub_key: &[u8],
@@ -143,8 +149,8 @@ impl crypto::ActiveKeyExchange for ExKeyExchange {
         self.diffie_hellman(peer_pub_key)
             .map(|x| crypto::SharedSecret::from(x.as_slice()))
             .map_err(|e| {
-                map_error_stack(
-                    "ex.diffie_hellman",
+                log_and_map(
+                    "ex::KeyExchange::diffie_hellman",
                     e,
                     rustls::Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare),
                 )
@@ -169,13 +175,13 @@ impl crypto::ActiveKeyExchange for ExKeyExchange {
 
 #[cfg(test)]
 mod tests {
-    use super::ExKeyExchange;
+    use super::KeyExchange;
     use rustls::crypto::ActiveKeyExchange;
 
     #[test]
     fn test_derive_ec() {
-        let alice = Box::new(ExKeyExchange::with_secp256r1().unwrap());
-        let bob = ExKeyExchange::with_secp256r1().unwrap();
+        let alice = Box::new(KeyExchange::with_secp256r1().unwrap());
+        let bob = KeyExchange::with_secp256r1().unwrap();
 
         assert_eq!(
             alice.diffie_hellman(bob.pub_key()).unwrap(),
@@ -185,8 +191,8 @@ mod tests {
 
     #[test]
     fn test_derive_ed() {
-        let alice = Box::new(ExKeyExchange::with_x25519().unwrap());
-        let bob = ExKeyExchange::with_x25519().unwrap();
+        let alice = Box::new(KeyExchange::with_x25519().unwrap());
+        let bob = KeyExchange::with_x25519().unwrap();
 
         assert_eq!(
             alice.diffie_hellman(bob.pub_key()).unwrap(),

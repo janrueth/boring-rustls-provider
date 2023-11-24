@@ -6,11 +6,10 @@ use aead::{
 use boring_additions::aead::Algorithm;
 use rustls::{crypto::cipher, ConnectionTrafficSecrets};
 
+/// `ChaCha20` with `Poly1305` cipher
 pub struct ChaCha20Poly1305 {}
 
 impl BoringAead for ChaCha20Poly1305 {}
-unsafe impl Send for ChaCha20Poly1305 {}
-unsafe impl Sync for ChaCha20Poly1305 {}
 
 impl BoringCipher for ChaCha20Poly1305 {
     fn new_cipher() -> Algorithm {

@@ -9,6 +9,8 @@ use boring::{
 use rustls::{sign::SigningKey, SignatureScheme};
 use rustls_pki_types::PrivateKeyDer;
 
+use crate::helper::log_and_map;
+
 const ALL_RSA_SCHEMES: &[SignatureScheme] = &[
     SignatureScheme::RSA_PSS_SHA512,
     SignatureScheme::RSA_PSS_SHA384,
@@ -24,6 +26,8 @@ const ALL_EC_SCHEMES: &[SignatureScheme] = &[
     SignatureScheme::ECDSA_NISTP521_SHA512,
 ];
 
+/// An abstraction over a boringssl private key
+/// used for signing
 #[derive(Debug)]
 pub struct BoringPrivateKey(Arc<boring::pkey::PKey<Private>>, rustls::SignatureAlgorithm);
 
@@ -33,10 +37,12 @@ impl TryFrom<PrivateKeyDer<'static>> for BoringPrivateKey {
     fn try_from(value: PrivateKeyDer<'static>) -> Result<Self, Self::Error> {
         let pkey = match value {
             PrivateKeyDer::Pkcs8(der) => {
-                boring::pkey::PKey::private_key_from_pkcs8(der.secret_pkcs8_der()).map_err(|_| ())
+                boring::pkey::PKey::private_key_from_pkcs8(der.secret_pkcs8_der())
+                    .map_err(|e| log_and_map("private_key_from_pkcs8", e, ()))
             }
             PrivateKeyDer::Pkcs1(der) => {
-                boring::pkey::PKey::private_key_from_der(der.secret_pkcs1_der()).map_err(|_| ())
+                boring::pkey::PKey::private_key_from_der(der.secret_pkcs1_der())
+                    .map_err(|e| log_and_map("private_key_from_der", e, ()))
             }
             _ => Err(()),
         }
@@ -120,6 +126,7 @@ impl SigningKey for BoringPrivateKey {
     }
 }
 
+/// A boringssl-based Signer
 #[derive(Debug)]
 pub struct BoringSigner(Arc<boring::pkey::PKey<Private>>, rustls::SignatureScheme);
 
@@ -156,10 +163,7 @@ impl BoringSigner {
                 ec_signer_from_params(self.0.as_ref(), MessageDigest::sha512())
             }
 
-            SignatureScheme::ED25519 => {
-                Signer::new_without_digest(self.0.as_ref()).expect("failed getting signer")
-            }
-            SignatureScheme::ED448 => {
+            SignatureScheme::ED25519 | SignatureScheme::ED448 => {
                 Signer::new_without_digest(self.0.as_ref()).expect("failed getting signer")
             }
 
@@ -178,7 +182,7 @@ impl rustls::sign::Signer for BoringSigner {
 
         let toatl_len = signer
             .sign(&mut msg_with_sig[..])
-            .map_err(|_| rustls::Error::General("failed signing".into()))?;
+            .map_err(|e| log_and_map("sign", e, rustls::Error::General("failed signing".into())))?;
         msg_with_sig.truncate(toatl_len);
         Ok(msg_with_sig)
     }
