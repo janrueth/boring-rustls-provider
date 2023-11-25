@@ -21,6 +21,7 @@ aead = {version = "0.5", default_features = false, features = ["alloc"] }
 boring = { workspace = true }
 boring-additions = { path = "../boring-additions" }
 boring-sys = { workspace = true }
+boring-sys-additions = { path = "../boring-sys-additions" }
 foreign-types = "0.5"
 lazy_static = "1.4"
 log = { version = "0.4.4", optional = true }

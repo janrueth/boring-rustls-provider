@@ -13,6 +13,8 @@ mod helper;
 mod hkdf;
 mod hmac;
 mod kx;
+#[cfg(feature = "tls12")]
+mod prf;
 mod sign;
 #[cfg(feature = "tls12")]
 mod tls12;

@@ -1,0 +1,15 @@
+[package]
+name = "boring-sys-additions"
+version = "0.0.1"
+authors = ["Jan Rüth <boring-rustls-provider@djiehmail.com>"]
+edition = "2021"
+license = "MIT"
+description = "Boring-sys additions"
+publish = false
+
+[dependencies]
+boring-sys = { workspace = true }
+
+
+
+

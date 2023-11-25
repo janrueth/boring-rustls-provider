@@ -1,6 +1,6 @@
 use rustls::{crypto, SignatureScheme, Tls12CipherSuite};
 
-use crate::{aead, hash, hmac};
+use crate::{aead, hash, prf};
 
 static ALL_ECDSA_SCHEMES: &[SignatureScheme] = &[
     SignatureScheme::ECDSA_NISTP256_SHA256,
@@ -19,8 +19,8 @@ static ALL_RSA_SCHEMES: &[SignatureScheme] = &[
     SignatureScheme::RSA_PSS_SHA512,
 ];
 
-const PRF_SHA256: crypto::tls12::PrfUsingHmac<'_> = crypto::tls12::PrfUsingHmac(hmac::SHA256);
-const PRF_SHA384: crypto::tls12::PrfUsingHmac<'_> = crypto::tls12::PrfUsingHmac(hmac::SHA384);
+const PRF_SHA256: prf::PrfTls1WithDigest = prf::PrfTls1WithDigest(boring::nid::Nid::SHA256);
+const PRF_SHA384: prf::PrfTls1WithDigest = prf::PrfTls1WithDigest(boring::nid::Nid::SHA384);
 
 pub static ECDHE_ECDSA_AES128_GCM_SHA256: Tls12CipherSuite = Tls12CipherSuite {
     common: rustls::CipherSuiteCommon {
