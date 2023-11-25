@@ -2,6 +2,8 @@
 members = [
   # things that should probably be in boring crate
   "boring-additions",
+  # things that should probably be in boring-sys crate
+  "boring-sys-additions",
   # the main library and tests
   "boring-rustls-provider",
   # tests and example code
