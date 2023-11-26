@@ -1,3 +1,4 @@
+use rcgen::CertificateParams;
 use std::sync::Arc;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -95,6 +96,47 @@ async fn test_tls12_ec_crypto() {
     }
 }
 
+#[tokio::test]
+async fn test_tls12_rsa_crypto() {
+    let pki = TestPki::new(&rcgen::PKCS_RSA_SHA256);
+
+    let root_store = pki.client_root_store();
+    let server_config = pki.server_config();
+
+    let ciphers = [
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES256_GCM_SHA384),
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256),
+    ];
+
+    for cipher in ciphers {
+        let config = rustls::ClientConfig::builder_with_provider(PROVIDER)
+            .with_cipher_suites(&[cipher])
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(&[&TLS12])
+            .unwrap()
+            .with_root_certificates(root_store.clone())
+            .with_no_client_auth();
+
+        let listener = new_listener().await;
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(spawn_echo_server(listener, server_config.clone()));
+
+        let connector = TlsConnector::from(Arc::new(config));
+        let stream = TcpStream::connect(&addr).await.unwrap();
+
+        let mut stream = connector
+            .connect(rustls::ServerName::try_from("localhost").unwrap(), stream)
+            .await
+            .unwrap();
+
+        stream.write_all(b"HELLO").await.unwrap();
+        let mut buf = Vec::new();
+        let bytes = stream.read_to_end(&mut buf).await.unwrap();
+        assert_eq!(&buf[..bytes], b"HELLO");
+    }
+}
+
 async fn new_listener() -> TcpListener {
     TcpListener::bind("localhost:0").await.unwrap()
 }
@@ -133,6 +175,7 @@ impl TestPki {
             rcgen::KeyUsagePurpose::KeyCertSign,
             rcgen::KeyUsagePurpose::DigitalSignature,
         ];
+        keypair_for_alg(&mut ca_params, alg);
         ca_params.alg = alg;
         let ca_cert = rcgen::Certificate::from_params(ca_params).unwrap();
 
@@ -142,6 +185,7 @@ impl TestPki {
         server_ee_params.is_ca = rcgen::IsCa::NoCa;
         server_ee_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
         server_ee_params.alg = alg;
+        keypair_for_alg(&mut server_ee_params, alg);
         let server_cert = rcgen::Certificate::from_params(server_ee_params).unwrap();
         let server_cert_der =
             CertificateDer::from(server_cert.serialize_der_with_signer(&ca_cert).unwrap());
@@ -170,5 +214,25 @@ impl TestPki {
         let mut root_store = rustls::RootCertStore::empty();
         root_store.add(self.ca_cert_der.clone()).unwrap();
         root_store
+    }
+}
+
+fn gen_rsa_key(bits: u32) -> rcgen::KeyPair {
+    let rsa = boring::rsa::Rsa::generate(bits).unwrap();
+
+    let der_pkcs8 = boring::pkey::PKey::from_rsa(rsa)
+        .unwrap()
+        .private_key_to_der_pkcs8()
+        .unwrap();
+    rcgen::KeyPair::from_der(&der_pkcs8).unwrap()
+}
+
+fn keypair_for_alg(params: &mut CertificateParams, alg: &rcgen::SignatureAlgorithm) {
+    if alg == &rcgen::PKCS_RSA_SHA256 {
+        params.key_pair = Some(gen_rsa_key(2048));
+    } else if alg == &rcgen::PKCS_RSA_SHA384 {
+        params.key_pair = Some(gen_rsa_key(3072));
+    } else if alg == &rcgen::PKCS_RSA_SHA512 {
+        params.key_pair = Some(gen_rsa_key(4096));
     }
 }

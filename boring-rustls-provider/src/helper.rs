@@ -31,6 +31,7 @@ pub(crate) fn cvt(r: c_int) -> Result<i32, ErrorStack> {
 }
 
 #[cfg(feature = "log")]
+#[inline(always)]
 pub(crate) fn log_and_map<E: core::fmt::Display, T>(func: &'static str, e: E, mapped: T) -> T {
     trace!("failed {}, error: {}", func, e);
     mapped
