@@ -8,7 +8,7 @@ use tokio::{
 use boring_rustls_provider::{tls12, tls13, PROVIDER};
 use rustls::{
     version::{TLS12, TLS13},
-    ServerConfig, SupportedCipherSuite,
+    ClientConfig, ServerConfig, SupportedCipherSuite,
 };
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
@@ -28,7 +28,7 @@ async fn test_tls13_crypto() {
     ];
 
     for cipher in ciphers {
-        let config = rustls::ClientConfig::builder_with_provider(PROVIDER)
+        let config = ClientConfig::builder_with_provider(PROVIDER)
             .with_cipher_suites(&[cipher])
             .with_safe_default_kx_groups()
             .with_protocol_versions(&[&TLS13])
@@ -36,22 +36,7 @@ async fn test_tls13_crypto() {
             .with_root_certificates(root_store.clone())
             .with_no_client_auth();
 
-        let listener = new_listener().await;
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(spawn_echo_server(listener, server_config.clone()));
-
-        let connector = TlsConnector::from(Arc::new(config));
-        let stream = TcpStream::connect(&addr).await.unwrap();
-
-        let mut stream = connector
-            .connect(rustls::ServerName::try_from("localhost").unwrap(), stream)
-            .await
-            .unwrap();
-
-        stream.write_all(b"HELLO").await.unwrap();
-        let mut buf = Vec::new();
-        let bytes = stream.read_to_end(&mut buf).await.unwrap();
-        assert_eq!(&buf[..bytes], b"HELLO");
+        do_exchange(config, server_config.clone()).await;
     }
 }
 
@@ -69,7 +54,7 @@ async fn test_tls12_ec_crypto() {
     ];
 
     for cipher in ciphers {
-        let config = rustls::ClientConfig::builder_with_provider(PROVIDER)
+        let config = ClientConfig::builder_with_provider(PROVIDER)
             .with_cipher_suites(&[cipher])
             .with_safe_default_kx_groups()
             .with_protocol_versions(&[&TLS12])
@@ -77,22 +62,7 @@ async fn test_tls12_ec_crypto() {
             .with_root_certificates(root_store.clone())
             .with_no_client_auth();
 
-        let listener = new_listener().await;
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(spawn_echo_server(listener, server_config.clone()));
-
-        let connector = TlsConnector::from(Arc::new(config));
-        let stream = TcpStream::connect(&addr).await.unwrap();
-
-        let mut stream = connector
-            .connect(rustls::ServerName::try_from("localhost").unwrap(), stream)
-            .await
-            .unwrap();
-
-        stream.write_all(b"HELLO").await.unwrap();
-        let mut buf = Vec::new();
-        let bytes = stream.read_to_end(&mut buf).await.unwrap();
-        assert_eq!(&buf[..bytes], b"HELLO");
+        do_exchange(config, server_config.clone()).await;
     }
 }
 
@@ -110,7 +80,7 @@ async fn test_tls12_rsa_crypto() {
     ];
 
     for cipher in ciphers {
-        let config = rustls::ClientConfig::builder_with_provider(PROVIDER)
+        let config = ClientConfig::builder_with_provider(PROVIDER)
             .with_cipher_suites(&[cipher])
             .with_safe_default_kx_groups()
             .with_protocol_versions(&[&TLS12])
@@ -118,27 +88,34 @@ async fn test_tls12_rsa_crypto() {
             .with_root_certificates(root_store.clone())
             .with_no_client_auth();
 
-        let listener = new_listener().await;
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(spawn_echo_server(listener, server_config.clone()));
-
-        let connector = TlsConnector::from(Arc::new(config));
-        let stream = TcpStream::connect(&addr).await.unwrap();
-
-        let mut stream = connector
-            .connect(rustls::ServerName::try_from("localhost").unwrap(), stream)
-            .await
-            .unwrap();
-
-        stream.write_all(b"HELLO").await.unwrap();
-        let mut buf = Vec::new();
-        let bytes = stream.read_to_end(&mut buf).await.unwrap();
-        assert_eq!(&buf[..bytes], b"HELLO");
+        do_exchange(config, server_config.clone()).await;
     }
 }
 
 async fn new_listener() -> TcpListener {
     TcpListener::bind("localhost:0").await.unwrap()
+}
+
+async fn do_exchange(config: ClientConfig, server_config: Arc<ServerConfig>) {
+    let listener = new_listener().await;
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(spawn_echo_server(listener, server_config.clone()));
+
+    let connector = TlsConnector::from(Arc::new(config));
+    let stream = TcpStream::connect(&addr).await.unwrap();
+
+    let mut stream = connector
+        .connect(
+            rustls_pki_types::ServerName::try_from("localhost").unwrap(),
+            stream,
+        )
+        .await
+        .unwrap();
+
+    stream.write_all(b"HELLO").await.unwrap();
+    let mut buf = Vec::new();
+    let bytes = stream.read_to_end(&mut buf).await.unwrap();
+    assert_eq!(&buf[..bytes], b"HELLO");
 }
 
 async fn spawn_echo_server(listener: TcpListener, config: Arc<ServerConfig>) {

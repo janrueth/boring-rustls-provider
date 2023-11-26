@@ -109,7 +109,7 @@ where
     T: BoringAead,
 {
     fn encrypt(
-        &self,
+        &mut self,
         msg: cipher::BorrowedPlainMessage,
         seq: u64,
     ) -> Result<cipher::OpaqueMessage, rustls::Error> {
@@ -121,8 +121,7 @@ where
                 let fixed_iv_len = <T as BoringCipher>::FIXED_IV_LEN;
                 let explicit_nonce_len = <T as BoringCipher>::EXPLICIT_NONCE_LEN;
 
-                let total_len =
-                    msg.payload.len() + self.crypter.max_overhead() + explicit_nonce_len;
+                let total_len = self.encrypted_payload_len(msg.payload.len());
 
                 let mut full_payload = Vec::with_capacity(total_len);
                 full_payload.extend_from_slice(&nonce.0.as_ref()[fixed_iv_len..]);
@@ -139,7 +138,7 @@ where
             }
 
             ProtocolVersion::TLSv1_3 => {
-                let total_len = msg.payload.len() + 1 + self.crypter.max_overhead();
+                let total_len = self.encrypted_payload_len(msg.payload.len());
 
                 let mut payload = Vec::with_capacity(total_len);
                 payload.extend_from_slice(msg.payload);
@@ -160,10 +159,15 @@ where
         }
     }
 
-    // Next version seems to add this
-    // fn encrypted_payload_len(&self, payload_len: usize) -> usize {
-    //     payload_len + 1 + self.crypter.max_overhead()
-    // }
+    fn encrypted_payload_len(&self, payload_len: usize) -> usize {
+        match self.tls_version {
+            ProtocolVersion::TLSv1_2 => {
+                payload_len + self.crypter.max_overhead() + <T as BoringCipher>::EXPLICIT_NONCE_LEN
+            }
+            ProtocolVersion::TLSv1_3 => payload_len + 1 + self.crypter.max_overhead(),
+            _ => unimplemented!(),
+        }
+    }
 }
 
 impl<T> cipher::MessageDecrypter for BoringAeadCrypter<T>
@@ -171,7 +175,7 @@ where
     T: BoringAead,
 {
     fn decrypt(
-        &self,
+        &mut self,
         mut m: cipher::OpaqueMessage,
         seq: u64,
     ) -> Result<cipher::PlainMessage, rustls::Error> {
