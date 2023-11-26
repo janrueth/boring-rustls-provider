@@ -111,23 +111,38 @@ where
         msg: cipher::BorrowedPlainMessage,
         seq: u64,
     ) -> Result<cipher::OpaqueMessage, rustls::Error> {
-        let total_len = msg.payload.len() + 1 + self.crypter.max_overhead();
-
-        let mut payload = Vec::with_capacity(total_len);
-        payload.extend_from_slice(msg.payload);
-        payload.push(msg.typ.get_u8());
-
         let nonce = cipher::Nonce::new(&self.iv, seq);
 
         match self.tls_version {
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => {
-                let aad = cipher::make_tls12_aad(seq, msg.typ, msg.version, total_len);
-                self.encrypt_in_place(Nonce::<T>::from_slice(&nonce.0), &aad, &mut payload)
+                let fixed_iv_len = <T as BoringCipher>::fixed_iv_len();
+                let explicit_nonce_len = <T as BoringCipher>::explicit_nonce_len();
+
+                let total_len =
+                    msg.payload.len() + self.crypter.max_overhead() + explicit_nonce_len;
+
+                let mut full_payload = Vec::with_capacity(total_len);
+                full_payload.extend_from_slice(&nonce.0.as_ref()[fixed_iv_len..]);
+                full_payload.extend_from_slice(msg.payload);
+                full_payload.extend_from_slice(&vec![0u8; self.crypter.max_overhead()]);
+
+                let (_, payload) = full_payload.split_at_mut(explicit_nonce_len);
+                let (payload, tag) = payload.split_at_mut(msg.payload.len());
+                let aad = cipher::make_tls12_aad(seq, msg.typ, msg.version, msg.payload.len());
+                self.crypter
+                    .seal_in_place(&nonce.0, &aad, payload, tag)
                     .map_err(|_| rustls::Error::EncryptError)
-                    .map(|_| cipher::OpaqueMessage::new(msg.typ, msg.version, payload))
+                    .map(|_| cipher::OpaqueMessage::new(msg.typ, msg.version, full_payload))
             }
+
             ProtocolVersion::TLSv1_3 => {
+                let total_len = msg.payload.len() + 1 + self.crypter.max_overhead();
+
+                let mut payload = Vec::with_capacity(total_len);
+                payload.extend_from_slice(msg.payload);
+                payload.push(msg.typ.get_u8());
+
                 let aad = cipher::make_tls13_aad(total_len);
                 self.encrypt_in_place(Nonce::<T>::from_slice(&nonce.0), &aad, &mut payload)
                     .map_err(|_| rustls::Error::EncryptError)
@@ -159,18 +174,56 @@ where
         seq: u64,
     ) -> Result<cipher::PlainMessage, rustls::Error> {
         // construct nonce
-        let nonce = cipher::Nonce::new(&self.iv, seq);
 
         // construct the aad and decrypt
         match self.tls_version {
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => {
-                let aad = make_tls12_aad(seq, m.typ, m.version, m.payload().len());
-                self.decrypt_in_place(Nonce::<T>::from_slice(&nonce.0), &aad, m.payload_mut())
+                let explicit_nonce_len = <T as BoringCipher>::explicit_nonce_len();
+
+                // payload is: [nonce] | [ciphertext] | [auth tag]
+                let actual_payload_length =
+                    m.payload().len() - self.crypter.max_overhead() - explicit_nonce_len;
+
+                let aad = make_tls12_aad(seq, m.typ, m.version, actual_payload_length);
+
+                let payload = m.payload_mut();
+
+                // get the nonce
+                let (explicit_nonce, payload) = payload.split_at_mut(explicit_nonce_len);
+
+                let nonce = {
+                    let fixed_iv_len = <T as BoringCipher>::fixed_iv_len();
+
+                    assert_eq!(explicit_nonce_len + fixed_iv_len, 12);
+
+                    // grab the IV by constructing a nonce, this is just an xor
+                    let iv = cipher::Nonce::new(&self.iv, 0).0;
+                    let mut nonce = [0u8; 12];
+                    nonce[..fixed_iv_len].copy_from_slice(&iv[..fixed_iv_len]);
+                    nonce[fixed_iv_len..].copy_from_slice(explicit_nonce);
+                    nonce
+                };
+
+                // split off the authentication tag
+                let (payload, tag) =
+                    payload.split_at_mut(payload.len() - self.crypter.max_overhead());
+
+                self.crypter
+                    .open_in_place(&nonce, &aad, payload, tag)
                     .map_err(|_| rustls::Error::DecryptError)
-                    .map(|_| m.into_plain_message())
+                    .map(|_| {
+                        // rotate the nonce to the end
+                        m.payload_mut().rotate_left(explicit_nonce_len);
+
+                        // truncate buffer to the actual payload
+                        m.payload_mut().truncate(actual_payload_length);
+
+                        m.into_plain_message()
+                    })
             }
             ProtocolVersion::TLSv1_3 => {
+                let nonce = cipher::Nonce::new(&self.iv, seq);
                 let aad = make_tls13_aad(m.payload().len());
                 self.decrypt_in_place(Nonce::<T>::from_slice(&nonce.0), &aad, m.payload_mut())
                     .map_err(|_| rustls::Error::DecryptError)
@@ -221,18 +274,29 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
         &self,
         key: cipher::AeadKey,
         iv: &[u8],
-        _extra: &[u8],
+        extra: &[u8],
     ) -> Box<dyn cipher::MessageEncrypter> {
+        let mut full_iv = Vec::with_capacity(iv.len() + extra.len());
+        full_iv.extend_from_slice(iv);
+        full_iv.extend_from_slice(extra);
         Box::new(
-            BoringAeadCrypter::<T>::new(Iv::copy(iv), key.as_ref(), ProtocolVersion::TLSv1_2)
+            BoringAeadCrypter::<T>::new(Iv::copy(&full_iv), key.as_ref(), ProtocolVersion::TLSv1_2)
                 .expect("failed to create AEAD crypter"),
         )
     }
 
     fn decrypter(&self, key: cipher::AeadKey, iv: &[u8]) -> Box<dyn cipher::MessageDecrypter> {
+        let mut pseudo_iv =
+            Vec::with_capacity(iv.len() + <T as BoringCipher>::explicit_nonce_len());
+        pseudo_iv.extend_from_slice(iv);
+        pseudo_iv.extend_from_slice(&vec![0u8; <T as BoringCipher>::explicit_nonce_len()]);
         Box::new(
-            BoringAeadCrypter::<T>::new(Iv::copy(iv), key.as_ref(), ProtocolVersion::TLSv1_2)
-                .expect("failed to create AEAD crypter"),
+            BoringAeadCrypter::<T>::new(
+                Iv::copy(&pseudo_iv),
+                key.as_ref(),
+                ProtocolVersion::TLSv1_2,
+            )
+            .expect("failed to create AEAD crypter"),
         )
     }
 
@@ -241,9 +305,8 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
             enc_key_len: <T as BoringCipher>::key_size(),
             // there is no benefit of splitting these up here, we'd need to stich them anyways
             // by only setting fixed_iv_len we get the full lengths
-            fixed_iv_len: <T as BoringCipher>::fixed_iv_len()
-                + <T as BoringCipher>::explicit_nonce_len(),
-            explicit_nonce_len: 0,
+            fixed_iv_len: <T as BoringCipher>::fixed_iv_len(),
+            explicit_nonce_len: <T as BoringCipher>::explicit_nonce_len(),
         }
     }
 
@@ -251,8 +314,20 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
         &self,
         key: cipher::AeadKey,
         iv: &[u8],
-        _explicit: &[u8],
+        explicit: &[u8],
     ) -> Result<ConnectionTrafficSecrets, cipher::UnsupportedOperationError> {
-        Ok(<T as BoringCipher>::extract_keys(key, Iv::copy(iv)))
+        let nonce = {
+            let fixed_iv_len = <T as BoringCipher>::fixed_iv_len();
+            let explicit_nonce_len = <T as BoringCipher>::explicit_nonce_len();
+            assert_eq!(explicit_nonce_len + fixed_iv_len, 12);
+
+            // grab the IV by constructing a nonce, this is just an xor
+
+            let mut nonce = [0u8; 12];
+            nonce[..fixed_iv_len].copy_from_slice(&iv[..fixed_iv_len]);
+            nonce[fixed_iv_len..].copy_from_slice(explicit);
+            nonce
+        };
+        Ok(<T as BoringCipher>::extract_keys(key, Iv::copy(&nonce)))
     }
 }

@@ -4,8 +4,11 @@ use tokio::{
     net::TcpStream,
 };
 
-use boring_rustls_provider::{tls13, PROVIDER};
-use rustls::{version::TLS13, ServerConfig, SupportedCipherSuite};
+use boring_rustls_provider::{tls12, tls13, PROVIDER};
+use rustls::{
+    version::{TLS12, TLS13},
+    ServerConfig, SupportedCipherSuite,
+};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -20,6 +23,7 @@ async fn test_tls13_crypto() {
     let ciphers = [
         SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
         SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
+        SupportedCipherSuite::Tls13(&tls13::CHACHA20_POLY1305_SHA256),
     ];
 
     for cipher in ciphers {
@@ -27,6 +31,47 @@ async fn test_tls13_crypto() {
             .with_cipher_suites(&[cipher])
             .with_safe_default_kx_groups()
             .with_protocol_versions(&[&TLS13])
+            .unwrap()
+            .with_root_certificates(root_store.clone())
+            .with_no_client_auth();
+
+        let listener = new_listener().await;
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(spawn_echo_server(listener, server_config.clone()));
+
+        let connector = TlsConnector::from(Arc::new(config));
+        let stream = TcpStream::connect(&addr).await.unwrap();
+
+        let mut stream = connector
+            .connect(rustls::ServerName::try_from("localhost").unwrap(), stream)
+            .await
+            .unwrap();
+
+        stream.write_all(b"HELLO").await.unwrap();
+        let mut buf = Vec::new();
+        let bytes = stream.read_to_end(&mut buf).await.unwrap();
+        assert_eq!(&buf[..bytes], b"HELLO");
+    }
+}
+
+#[tokio::test]
+async fn test_tls12_ec_crypto() {
+    let pki = TestPki::new(&rcgen::PKCS_ECDSA_P256_SHA256);
+
+    let root_store = pki.client_root_store();
+    let server_config = pki.server_config();
+
+    let ciphers = [
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES128_GCM_SHA256),
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES256_GCM_SHA384),
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256),
+    ];
+
+    for cipher in ciphers {
+        let config = rustls::ClientConfig::builder_with_provider(PROVIDER)
+            .with_cipher_suites(&[cipher])
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(&[&TLS12])
             .unwrap()
             .with_root_certificates(root_store.clone())
             .with_no_client_auth();
