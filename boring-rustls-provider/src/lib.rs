@@ -15,11 +15,11 @@ mod hmac;
 mod kx;
 #[cfg(feature = "tls12")]
 mod prf;
-mod sign;
+pub mod sign;
 #[cfg(feature = "tls12")]
-mod tls12;
-mod tls13;
-mod verify;
+pub mod tls12;
+pub mod tls13;
+pub mod verify;
 
 /// The boringssl-based Rustls Crypto provider
 pub static PROVIDER: &'static dyn CryptoProvider = &Provider;

@@ -33,6 +33,9 @@ webpki = { package = "rustls-webpki", version = "0.102.0-alpha.1", default-featu
 
 [dev-dependencies]
 hex-literal = "0.4"
+rcgen = "0.11.3"
+tokio = { version = "1.34", features = ["macros", "rt", "net", "io-util", "io-std"] }
+tokio-rustls = "0.25.0-alpha.2"
 
 
 
