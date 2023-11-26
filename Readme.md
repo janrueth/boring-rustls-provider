@@ -7,7 +7,7 @@ This is just a dump of me figuring out how to interface with boring and rustls.
 It works to establish a connection and exchange data but I haven't written real tests yet, nor did I cleanup the code or made the effort to make it look nice.
 There is probably some code in here that should rather live in the `boring` crate.
 
-Further, the rustls crypto provider API is still not stable it seems. This works currently with `rustls = 0.22.0-alpha.4`.
+Further, the rustls crypto provider API is still not stable it seems. This works currently with `rustls = 0.22.0-alpha.5`.
 
 ### Supported ciphers
 Currently, supports only TLS 1.3:
@@ -16,6 +16,8 @@ AES_128_GCM_SHA256
 AES_256_GCM_SHA384
 CHACHA20_POLY1305_SHA256
 ```
+
+QUIC: not yet supported
 
 TLS 1.2:
 ```
