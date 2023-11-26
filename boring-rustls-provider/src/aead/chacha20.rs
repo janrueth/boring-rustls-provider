@@ -12,24 +12,18 @@ pub struct ChaCha20Poly1305 {}
 impl BoringAead for ChaCha20Poly1305 {}
 
 impl BoringCipher for ChaCha20Poly1305 {
+    const EXPLICIT_NONCE_LEN: usize = 0;
+
+    const FIXED_IV_LEN: usize = 12;
+
+    const KEY_SIZE: usize = 32;
+
     fn new_cipher() -> Algorithm {
         Algorithm::chacha20_poly1305()
     }
 
-    fn key_size() -> usize {
-        32
-    }
-
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets {
         ConnectionTrafficSecrets::Chacha20Poly1305 { key, iv }
-    }
-
-    fn fixed_iv_len() -> usize {
-        4
-    }
-
-    fn explicit_nonce_len() -> usize {
-        8
     }
 }
 

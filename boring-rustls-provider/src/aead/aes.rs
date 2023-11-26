@@ -9,24 +9,18 @@ pub struct Aes128 {}
 impl BoringAead for Aes128 {}
 
 impl BoringCipher for Aes128 {
+    const EXPLICIT_NONCE_LEN: usize = 8;
+
+    const FIXED_IV_LEN: usize = 4;
+
+    const KEY_SIZE: usize = 16;
+
     fn new_cipher() -> Algorithm {
         Algorithm::aes_128_gcm()
     }
 
-    fn key_size() -> usize {
-        16
-    }
-
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets {
         ConnectionTrafficSecrets::Aes128Gcm { key, iv }
-    }
-
-    fn fixed_iv_len() -> usize {
-        4
-    }
-
-    fn explicit_nonce_len() -> usize {
-        8
     }
 }
 
@@ -42,24 +36,18 @@ pub struct Aes256 {}
 impl BoringAead for Aes256 {}
 
 impl BoringCipher for Aes256 {
+    const EXPLICIT_NONCE_LEN: usize = 8;
+
+    const FIXED_IV_LEN: usize = 4;
+
+    const KEY_SIZE: usize = 32;
+
     fn new_cipher() -> Algorithm {
         Algorithm::aes_256_gcm()
     }
 
-    fn key_size() -> usize {
-        32
-    }
-
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets {
         ConnectionTrafficSecrets::Aes256Gcm { key, iv }
-    }
-
-    fn fixed_iv_len() -> usize {
-        4
-    }
-
-    fn explicit_nonce_len() -> usize {
-        8
     }
 }
 
