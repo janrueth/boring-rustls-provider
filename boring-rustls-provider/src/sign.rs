@@ -174,17 +174,21 @@ impl BoringSigner {
 
 impl rustls::sign::Signer for BoringSigner {
     fn sign(&self, message: &[u8]) -> Result<Vec<u8>, rustls::Error> {
-        let signer = self.get_signer();
-        let mut msg_with_sig =
-            Vec::<u8>::with_capacity(message.len() + boring_sys::EVP_MAX_MD_SIZE as usize);
-        msg_with_sig.extend_from_slice(message);
-        msg_with_sig.extend_from_slice(&[0u8; boring_sys::EVP_MAX_MD_SIZE as usize]);
+        let mut signer = self.get_signer();
+        let max_sig_len = signer
+            .len()
+            .map_err(|e| log_and_map("len", e, rustls::Error::General("failed signing".into())))?;
+        let mut sig = vec![0u8; max_sig_len];
 
-        let toatl_len = signer
-            .sign(&mut msg_with_sig[..])
-            .map_err(|e| log_and_map("sign", e, rustls::Error::General("failed signing".into())))?;
-        msg_with_sig.truncate(toatl_len);
-        Ok(msg_with_sig)
+        let sig_len = signer.sign_oneshot(&mut sig[..], message).map_err(|e| {
+            log_and_map(
+                "sign_oneshot",
+                e,
+                rustls::Error::General("failed signing".into()),
+            )
+        })?;
+        sig.truncate(sig_len);
+        Ok(sig)
     }
 
     fn scheme(&self) -> rustls::SignatureScheme {
