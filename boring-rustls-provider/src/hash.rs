@@ -63,6 +63,24 @@ mod tests {
     use hex_literal::hex;
 
     #[test]
+    fn test_context() {
+        let mut hash = SHA256.start();
+        hash.update(b"ABCDE");
+        let abcde = hash.fork_finish();
+        hash.update(b"FGHIJ");
+        let abcdefghij = hash.finish();
+
+        assert_eq!(
+            abcde.as_ref(),
+            hex!("f0393febe8baaa55e32f7be2a7cc180bf34e52137d99e056c817a9c07b8f239a")
+        );
+        assert_eq!(
+            abcdefghij.as_ref(),
+            hex!("261305762671a58cae5b74990bcfc236c2336fb04a0fbac626166d9491d2884c")
+        );
+    }
+
+    #[test]
     fn test_sha256() {
         let hash = SHA256.hash("test".as_bytes());
 
