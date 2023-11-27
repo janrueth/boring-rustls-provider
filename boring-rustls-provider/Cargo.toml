@@ -10,7 +10,7 @@ publish = false
 [features]
 default = ["tls12"]
 # Use a FIPS-validated version of boringssl.
-#fips = ["boring/fips", "boring-sys/fips"]
+fips = ["boring/fips", "boring-sys/fips"]
 logging = ["log"]
 fips-only = []
 tls12 = ["rustls/tls12"]

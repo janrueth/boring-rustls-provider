@@ -17,6 +17,6 @@ default-members = [
 resolver = "2"
 
 [workspace.dependencies]
-boring = { version = "4.0", default-features = false }
-boring-sys = { version = "4.0", default-features = false }
+boring = { version = "4", default-features = false }
+boring-sys = { version = "4", default-features = false }
 rustls = { version = "=0.22.0-alpha.5", default-features = false }
