@@ -1,5 +1,7 @@
 # boring-rustls-provider
 
+[![Build Status](https://github.com/janrueth/boring-rustls-provider/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/janrueth/boring-rustls-provider/actions/workflows/ci.yml?query=branch%3Amain)
+
 This is supposed to be the start to a [boringssl](https://github.com/cloudflare/boring)-based [rustls](https://github.com/rustls/rustls) crypto provider.
 
 ## Status

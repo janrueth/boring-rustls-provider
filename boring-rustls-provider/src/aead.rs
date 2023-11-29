@@ -22,11 +22,24 @@ pub(crate) trait BoringCipher {
     /// The key size in bytes
     const KEY_SIZE: usize;
 
+    /// The length of the authentication tag
+    const TAG_LEN: usize;
+
     /// Constructs a new instance of this cipher as an AEAD algorithm
     fn new_cipher() -> Algorithm;
 
     /// Extract keys
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets;
+}
+
+pub(crate) trait QuicCipher {
+    /// The key size in bytes
+    const KEY_SIZE: usize;
+
+    /// the expected length of a sample
+    const SAMPLE_LEN: usize;
+
+    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> [u8; 5];
 }
 
 pub(crate) trait BoringAead: BoringCipher + AeadCore + Send + Sync {}
@@ -237,9 +250,51 @@ where
     }
 }
 
-pub(crate) struct Aead<T: BoringCipher>(PhantomData<T>);
+impl<T> rustls::quic::PacketKey for BoringAeadCrypter<T>
+where
+    T: QuicCipher + BoringAead,
+{
+    fn encrypt_in_place(
+        &self,
+        packet_number: u64,
+        header: &[u8],
+        payload: &mut [u8],
+    ) -> Result<rustls::quic::Tag, rustls::Error> {
+        let associated_data = header;
+        let nonce = cipher::Nonce::new(&self.iv, packet_number);
+        let tag = self
+            .encrypt_in_place_detached(Nonce::<T>::from_slice(&nonce.0), associated_data, payload)
+            .map_err(|_| rustls::Error::EncryptError)?;
 
-impl<T: BoringCipher> Aead<T> {
+        Ok(rustls::quic::Tag::from(tag.as_ref()))
+    }
+
+    fn decrypt_in_place<'a>(
+        &self,
+        packet_number: u64,
+        header: &[u8],
+        payload: &'a mut [u8],
+    ) -> Result<&'a [u8], rustls::Error> {
+        let associated_data = header;
+        let nonce = cipher::Nonce::new(&self.iv, packet_number);
+
+        let (buffer, tag) = payload.split_at_mut(payload.len() - self.crypter.max_overhead());
+
+        self.crypter
+            .open_in_place(&nonce.0, associated_data, buffer, tag)
+            .map_err(|_| rustls::Error::DecryptError)?;
+
+        Ok(buffer)
+    }
+
+    fn tag_len(&self) -> usize {
+        <T as BoringCipher>::TAG_LEN
+    }
+}
+
+pub(crate) struct Aead<T>(PhantomData<T>);
+
+impl<T> Aead<T> {
     pub const DEFAULT: Self = Self(PhantomData);
 }
 
@@ -329,5 +384,112 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
             nonce
         };
         Ok(<T as BoringCipher>::extract_keys(key, Iv::copy(&nonce)))
+    }
+}
+
+struct QuicHeaderProtector<T: QuicCipher> {
+    key: cipher::AeadKey,
+    phantom: PhantomData<T>,
+}
+
+impl<T: QuicCipher> QuicHeaderProtector<T> {
+    const MAX_PN_LEN: usize = 4;
+    fn rfc9001_header_protection(
+        &self,
+        sample: &[u8],
+        first: &mut u8,
+        packet_number: &mut [u8],
+        remove: bool,
+    ) {
+        let mask = T::header_protection_mask(self.key.as_ref(), sample);
+
+        const LONG_HEADER_FORMAT: u8 = 0x80;
+        let bits_to_mask = if (*first & LONG_HEADER_FORMAT) == LONG_HEADER_FORMAT {
+            // Long header: 4 bits masked
+            0x0f
+        } else {
+            // Short header: 5 bits masked
+            0x1f
+        };
+
+        let pn_length = if remove {
+            // remove the mask on the first byte
+            // then get length to get same as below
+            *first ^= mask[0] & bits_to_mask;
+            (*first & 0x03) as usize + 1
+        } else {
+            // calculate length than mask
+            let pn_length = (*first & 0x03) as usize + 1;
+            *first ^= mask[0] & bits_to_mask;
+            pn_length
+        };
+
+        // mask the first `pn_length` bytes of the packet number with the mask
+        for (pn_byte, m) in packet_number.iter_mut().zip(&mask[1..]).take(pn_length) {
+            *pn_byte ^= m;
+        }
+    }
+}
+
+impl<T: QuicCipher> rustls::quic::HeaderProtectionKey for QuicHeaderProtector<T> {
+    fn encrypt_in_place(
+        &self,
+        sample: &[u8],
+        first: &mut u8,
+        packet_number: &mut [u8],
+    ) -> Result<(), rustls::Error> {
+        // We can only mask up to 4 bytes
+        if packet_number.len() > Self::MAX_PN_LEN {
+            return Err(rustls::Error::General("packet number too long".into()));
+        }
+
+        self.rfc9001_header_protection(sample, first, packet_number, false);
+
+        Ok(())
+    }
+
+    fn decrypt_in_place(
+        &self,
+        sample: &[u8],
+        first: &mut u8,
+        packet_number: &mut [u8],
+    ) -> Result<(), rustls::Error> {
+        if packet_number.len() > Self::MAX_PN_LEN {
+            return Err(rustls::Error::General("packet number too long".into()));
+        }
+
+        self.rfc9001_header_protection(sample, first, packet_number, true);
+
+        Ok(())
+    }
+
+    fn sample_len(&self) -> usize {
+        T::SAMPLE_LEN
+    }
+}
+
+impl<T> rustls::quic::Algorithm for Aead<T>
+where
+    T: QuicCipher + BoringAead + 'static,
+{
+    fn packet_key(&self, key: cipher::AeadKey, iv: Iv) -> Box<dyn rustls::quic::PacketKey> {
+        Box::new(
+            BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3)
+                .expect("failed to create AEAD crypter"),
+        )
+    }
+
+    fn header_protection_key(
+        &self,
+        key: cipher::AeadKey,
+    ) -> Box<dyn rustls::quic::HeaderProtectionKey> {
+        Box::new(QuicHeaderProtector {
+            key,
+            phantom: PhantomData::<T>,
+        })
+    }
+
+    fn aead_key_len(&self) -> usize {
+        <T as QuicCipher>::KEY_SIZE
     }
 }

@@ -1,4 +1,4 @@
-use super::{BoringAead, BoringCipher};
+use super::{BoringAead, BoringCipher, QuicCipher};
 use aead::{
     consts::{U12, U16},
     AeadCore,
@@ -18,12 +18,41 @@ impl BoringCipher for ChaCha20Poly1305 {
 
     const KEY_SIZE: usize = 32;
 
+    const TAG_LEN: usize = 16;
+
     fn new_cipher() -> Algorithm {
         Algorithm::chacha20_poly1305()
     }
 
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets {
         ConnectionTrafficSecrets::Chacha20Poly1305 { key, iv }
+    }
+}
+
+impl QuicCipher for ChaCha20Poly1305 {
+    const KEY_SIZE: usize = 32;
+    const SAMPLE_LEN: usize = 16;
+
+    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> [u8; 5] {
+        assert!(hp_key.len() == <Self as QuicCipher>::KEY_SIZE);
+        assert!(sample.len() >= <Self as QuicCipher>::SAMPLE_LEN);
+
+        let mut mask = [0u8; 5];
+        // RFC9001 5.4.4: The first 4 bytes of the sampled ciphertext are the block counter. A ChaCha20 implementation could take a 32-bit integer in place of a byte sequence, in which case, the byte sequence is interpreted as a little-endian value.
+        let counter = u32::from_le_bytes(sample[0..4].try_into().unwrap());
+        // RFC9001 5.4.4: The remaining 12 bytes are used as the nonce.
+        let nonce = &sample[4..16];
+        unsafe {
+            boring_sys::CRYPTO_chacha_20(
+                mask.as_mut_ptr(),
+                mask.as_ptr(),
+                mask.len(),
+                hp_key.as_ptr(),
+                nonce.as_ptr(),
+                counter,
+            );
+        };
+        mask
     }
 }
 
