@@ -20,3 +20,8 @@ resolver = "2"
 boring = { version = "4", default-features = false }
 boring-sys = { version = "4", default-features = false }
 rustls = { version = "=0.22.0-alpha.5", default-features = false }
+rustls-pemfile = { version = "=2.0.0-alpha.2" }
+rustls-pki-types = { version = "=0.2.2" }
+tokio-rustls = { version = "0.25.0-alpha.3" }
+webpki = { package = "rustls-webpki", version = "0.102.0-alpha.7", default-features = false, features = ["alloc", "std"] }
+webpki-roots = { version = "=0.26.0-alpha.2" }

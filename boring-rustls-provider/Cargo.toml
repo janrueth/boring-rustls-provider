@@ -27,15 +27,12 @@ lazy_static = "1.4"
 log = { version = "0.4.4", optional = true }
 once_cell = "1"
 rustls = { workspace = true }
-rustls-pki-types = "0.2"
+rustls-pki-types = { workspace = true }
 spki = "0.7"
-webpki = { package = "rustls-webpki", version = "0.102.0-alpha.1", default-features = false, features = ["alloc", "std"] }
+webpki = { workspace = true, features = ["alloc", "std"] }
 
 [dev-dependencies]
 hex-literal = "0.4"
 rcgen = "0.11.3"
 tokio = { version = "1.34", features = ["macros", "rt", "net", "io-util", "io-std"] }
-tokio-rustls = "0.25.0-alpha.2"
-
-
-
+tokio-rustls = { workspace = true }
