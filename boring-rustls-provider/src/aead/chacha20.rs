@@ -67,9 +67,10 @@ impl AeadCore for ChaCha20Poly1305 {
 #[cfg(test)]
 mod tests {
     use aead::{generic_array::GenericArray, AeadCore, Nonce, Tag};
+    use hex_literal::hex;
 
     use super::ChaCha20Poly1305;
-    use crate::aead::BoringCipher;
+    use crate::aead::{BoringCipher, QuicCipher};
 
     #[test]
     fn ensure_aead_core() {
@@ -82,5 +83,15 @@ mod tests {
         let overhead =
             GenericArray::<u8, <ChaCha20Poly1305 as AeadCore>::CiphertextOverhead>::default();
         assert_eq!(alg.max_overhead(), overhead.len());
+    }
+
+    #[test]
+    fn chacha20_quic_header_protection() {
+        // from https://www.rfc-editor.org/rfc/rfc9001.html#name-chacha20-poly1305-short-hea
+        let sample = hex!("5e5cd55c41f69080575d7999c25a5bfb");
+        let hp_key = hex!("25a282b9e82f06f21f488917a4fc8f1b73573685608597d0efcb076b0ab7a7a4");
+        let expected_mask = hex!("aefefe7d03");
+        let mask = ChaCha20Poly1305::header_protection_mask(&hp_key, &sample);
+        assert_eq!(mask, expected_mask);
     }
 }

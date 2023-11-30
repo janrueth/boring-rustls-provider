@@ -493,3 +493,71 @@ where
         <T as QuicCipher>::KEY_SIZE
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use hex_literal::hex;
+    use rustls::crypto::cipher::{AeadKey, Iv};
+
+    use crate::aead::BoringAeadCrypter;
+    use rustls::quic::PacketKey;
+
+    use super::{chacha20::ChaCha20Poly1305, QuicHeaderProtector};
+
+    #[test]
+    fn quic_header_protection_short() {
+        // test vector from https://www.rfc-editor.org/rfc/rfc9001.html#name-chacha20-poly1305-short-hea
+        let hp_key = hex!("25a282b9e82f06f21f488917a4fc8f1b73573685608597d0efcb076b0ab7a7a4");
+        let sample = hex!("5e5cd55c41f69080575d7999c25a5bfb");
+        let unprotected_header = hex!("4200bff4");
+        let mut header = unprotected_header;
+        let (first, packet_number) = header.split_at_mut(1);
+        let protected_header = hex!("4cfe4189");
+
+        let protector = QuicHeaderProtector {
+            key: AeadKey::from(hp_key),
+            phantom: std::marker::PhantomData::<ChaCha20Poly1305>,
+        };
+
+        protector.rfc9001_header_protection(&sample, &mut first[0], packet_number, false);
+        assert_eq!(&header[..], &protected_header[..]);
+
+        let (first, packet_number) = header.split_at_mut(1);
+        protector.rfc9001_header_protection(&sample, &mut first[0], packet_number, true);
+        assert_eq!(&header[..], &unprotected_header[..]);
+    }
+
+    #[test]
+    fn quic_chacha20_crypt() {
+        // test vector from https://www.rfc-editor.org/rfc/rfc9001.html#name-chacha20-poly1305-short-hea
+        let expected_cleartext = hex!("01");
+
+        let expected_ciphertext = hex!("655e5cd55c41f69080575d7999c25a5bfb");
+        let key = hex!("c6d98ff3441c3fe1b2182094f69caa2ed4b716b65488960a7a984979fb23e1c8");
+        let iv = hex!("e0459b3474bdd0e44a41c144");
+        let packet_number = 654360564;
+        let unprotected_header = hex!("4200bff4");
+
+        let protector = BoringAeadCrypter::<ChaCha20Poly1305>::new(
+            Iv::new(iv),
+            &key,
+            rustls::ProtocolVersion::TLSv1_3,
+        )
+        .unwrap();
+
+        let mut payload = expected_cleartext;
+
+        let tag = protector
+            .encrypt_in_place(packet_number, &unprotected_header, &mut payload)
+            .unwrap();
+
+        let mut ciphertext = [&payload, tag.as_ref()].concat();
+        assert_eq!(ciphertext, expected_ciphertext);
+
+        let cleartext = protector
+            .decrypt_in_place(packet_number, &unprotected_header, &mut ciphertext)
+            .unwrap();
+
+        assert_eq!(cleartext, expected_cleartext);
+    }
+}
