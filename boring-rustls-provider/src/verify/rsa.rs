@@ -11,6 +11,7 @@ use spki::der::Reader;
 
 use crate::helper::log_and_map;
 
+#[derive(Debug)]
 pub struct BoringRsaVerifier(SignatureScheme);
 
 impl BoringRsaVerifier {
