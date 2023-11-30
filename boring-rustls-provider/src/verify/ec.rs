@@ -4,6 +4,7 @@ use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
 use crate::helper;
 
+#[derive(Debug)]
 pub struct BoringEcVerifier(SignatureScheme);
 
 impl BoringEcVerifier {

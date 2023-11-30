@@ -7,6 +7,7 @@ use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
 use crate::helper::{cvt_p, log_and_map};
 
+#[derive(Debug)]
 pub struct BoringEdVerifier(SignatureScheme);
 
 impl BoringEdVerifier {

@@ -7,8 +7,6 @@ use crate::helper::{cvt, log_and_map};
 
 pub struct PrfTls1WithDigest(pub boring::nid::Nid);
 
-pub struct MySecret(Vec<u8>);
-
 impl crypto::tls12::Prf for PrfTls1WithDigest {
     fn for_key_exchange(
         &self,
@@ -23,12 +21,7 @@ impl crypto::tls12::Prf for PrfTls1WithDigest {
 
         let secret = kx.complete(peer_pub_key)?;
 
-        let secret: MySecret = unsafe {
-            // I don't see another way to get to the secret...
-            std::mem::transmute(secret)
-        };
-
-        prf(digest, output, &secret.0, label, seed)
+        prf(digest, output, secret.secret_bytes(), label, seed)
             .map_err(|e| log_and_map("prf", e, rustls::Error::General("failed on prf".into())))
     }
 
