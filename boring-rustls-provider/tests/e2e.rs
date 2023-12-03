@@ -5,7 +5,7 @@ use tokio::{
     net::TcpStream,
 };
 
-use boring_rustls_provider::{tls12, tls13, PROVIDER};
+use boring_rustls_provider::{tls12, tls13};
 use rustls::{
     version::{TLS12, TLS13},
     ClientConfig, ServerConfig, SupportedCipherSuite,
@@ -28,13 +28,13 @@ async fn test_tls13_crypto() {
     ];
 
     for cipher in ciphers {
-        let config = ClientConfig::builder_with_provider(PROVIDER)
-            .with_cipher_suites(&[cipher])
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&TLS13])
-            .unwrap()
-            .with_root_certificates(root_store.clone())
-            .with_no_client_auth();
+        let config = ClientConfig::builder_with_provider(Arc::new(
+            boring_rustls_provider::provider_with_ciphers([cipher].to_vec()),
+        ))
+        .with_protocol_versions(&[&TLS13])
+        .unwrap()
+        .with_root_certificates(root_store.clone())
+        .with_no_client_auth();
 
         do_exchange(config, server_config.clone()).await;
     }
@@ -54,13 +54,13 @@ async fn test_tls12_ec_crypto() {
     ];
 
     for cipher in ciphers {
-        let config = ClientConfig::builder_with_provider(PROVIDER)
-            .with_cipher_suites(&[cipher])
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&TLS12])
-            .unwrap()
-            .with_root_certificates(root_store.clone())
-            .with_no_client_auth();
+        let config = ClientConfig::builder_with_provider(Arc::new(
+            boring_rustls_provider::provider_with_ciphers([cipher].to_vec()),
+        ))
+        .with_protocol_versions(&[&TLS12])
+        .unwrap()
+        .with_root_certificates(root_store.clone())
+        .with_no_client_auth();
 
         do_exchange(config, server_config.clone()).await;
     }
@@ -80,13 +80,13 @@ async fn test_tls12_rsa_crypto() {
     ];
 
     for cipher in ciphers {
-        let config = ClientConfig::builder_with_provider(PROVIDER)
-            .with_cipher_suites(&[cipher])
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&TLS12])
-            .unwrap()
-            .with_root_certificates(root_store.clone())
-            .with_no_client_auth();
+        let config = ClientConfig::builder_with_provider(Arc::new(
+            boring_rustls_provider::provider_with_ciphers([cipher].to_vec()),
+        ))
+        .with_protocol_versions(&[&TLS12])
+        .unwrap()
+        .with_root_certificates(root_store.clone())
+        .with_no_client_auth();
 
         do_exchange(config, server_config.clone()).await;
     }
@@ -176,11 +176,13 @@ impl TestPki {
     }
 
     fn server_config(self) -> Arc<ServerConfig> {
-        let mut server_config = ServerConfig::builder_with_provider(PROVIDER)
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_single_cert(vec![self.server_cert_der], self.server_key_der)
-            .unwrap();
+        let mut server_config =
+            ServerConfig::builder_with_provider(Arc::new(boring_rustls_provider::provider()))
+                .with_protocol_versions(&[&TLS12, &TLS13])
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(vec![self.server_cert_der], self.server_key_der)
+                .unwrap();
 
         server_config.key_log = Arc::new(rustls::KeyLogFile::new());
 
