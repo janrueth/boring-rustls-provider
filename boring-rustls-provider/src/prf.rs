@@ -10,7 +10,7 @@ pub struct PrfTls1WithDigest(pub boring::nid::Nid);
 impl crypto::tls12::Prf for PrfTls1WithDigest {
     fn for_key_exchange(
         &self,
-        output: &mut [u8],
+        output: &mut [u8; 48],
         kx: Box<dyn crypto::ActiveKeyExchange>,
         peer_pub_key: &[u8],
         label: &[u8],

@@ -3,7 +3,7 @@ use rustls::Tls13CipherSuite;
 use crate::{aead, hash, hkdf};
 
 pub static AES_128_GCM_SHA256: Tls13CipherSuite = Tls13CipherSuite {
-    common: rustls::CipherSuiteCommon {
+    common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS13_AES_128_GCM_SHA256,
         hash_provider: hash::SHA256,
         confidentiality_limit: 1 << 23,
@@ -15,7 +15,7 @@ pub static AES_128_GCM_SHA256: Tls13CipherSuite = Tls13CipherSuite {
 };
 
 pub static AES_256_GCM_SHA384: Tls13CipherSuite = Tls13CipherSuite {
-    common: rustls::CipherSuiteCommon {
+    common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS13_AES_256_GCM_SHA384,
         hash_provider: hash::SHA384,
         confidentiality_limit: 1 << 23,
@@ -27,7 +27,7 @@ pub static AES_256_GCM_SHA384: Tls13CipherSuite = Tls13CipherSuite {
 };
 
 pub static CHACHA20_POLY1305_SHA256: Tls13CipherSuite = Tls13CipherSuite {
-    common: rustls::CipherSuiteCommon {
+    common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
         hash_provider: hash::SHA256,
         confidentiality_limit: u64::MAX,

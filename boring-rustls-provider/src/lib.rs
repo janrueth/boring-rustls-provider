@@ -21,55 +21,48 @@ pub mod tls12;
 pub mod tls13;
 pub mod verify;
 
-/// The boringssl-based Rustls Crypto provider
-pub static PROVIDER: &'static dyn CryptoProvider = &Provider;
+pub fn provider() -> CryptoProvider {
+    #[cfg(feature = "fips-only")]
+    {
+        provider_with_ciphers(ALL_FIPS_CIPHER_SUITES.to_vec())
+    }
+    #[cfg(not(feature = "fips-only"))]
+    {
+        provider_with_ciphers(ALL_CIPHER_SUITES.to_vec())
+    }
+}
+
+pub fn provider_with_ciphers(ciphers: Vec<rustls::SupportedCipherSuite>) -> CryptoProvider {
+    CryptoProvider {
+        cipher_suites: ciphers,
+        #[cfg(feature = "fips-only")]
+        kx_groups: ALL_FIPS_KX_GROUPS.to_vec(),
+        #[cfg(not(feature = "fips-only"))]
+        kx_groups: ALL_KX_GROUPS.to_vec(),
+        #[cfg(feature = "fips-only")]
+        signature_verification_algorithms: verify::ALL_FIPS_ALGORITHMS,
+        #[cfg(not(feature = "fips-only"))]
+        signature_verification_algorithms: verify::ALL_ALGORITHMS,
+        secure_random: &Provider,
+        key_provider: &Provider,
+    }
+}
 
 #[derive(Debug)]
 struct Provider;
 
-impl CryptoProvider for Provider {
-    fn fill_random(&self, bytes: &mut [u8]) -> Result<(), GetRandomFailed> {
+impl rustls::crypto::SecureRandom for Provider {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), rustls::crypto::GetRandomFailed> {
         boring::rand::rand_bytes(bytes).map_err(|e| log_and_map("rand_bytes", e, GetRandomFailed))
     }
+}
 
-    fn default_cipher_suites(&self) -> &'static [SupportedCipherSuite] {
-        #[cfg(feature = "fips-only")]
-        {
-            ALL_FIPS_CIPHER_SUITES
-        }
-        #[cfg(not(feature = "fips-only"))]
-        {
-            ALL_CIPHER_SUITES
-        }
-    }
-
-    fn default_kx_groups(&self) -> &'static [&'static dyn SupportedKxGroup] {
-        #[cfg(feature = "fips-only")]
-        {
-            ALL_FIPS_KX_GROUPS
-        }
-        #[cfg(not(feature = "fips-only"))]
-        {
-            ALL_KX_GROUPS
-        }
-    }
-
+impl rustls::crypto::KeyProvider for Provider {
     fn load_private_key(
         &self,
         key_der: PrivateKeyDer<'static>,
-    ) -> Result<std::sync::Arc<dyn rustls::sign::SigningKey>, rustls::Error> {
+    ) -> Result<Arc<dyn rustls::sign::SigningKey>, rustls::Error> {
         sign::BoringPrivateKey::try_from(key_der).map(|x| Arc::new(x) as _)
-    }
-
-    fn signature_verification_algorithms(&self) -> rustls::WebPkiSupportedAlgorithms {
-        #[cfg(feature = "fips-only")]
-        {
-            verify::ALL_FIPS_ALGORITHMS
-        }
-        #[cfg(not(feature = "fips-only"))]
-        {
-            verify::ALL_ALGORITHMS
-        }
     }
 }
 
