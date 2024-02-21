@@ -32,7 +32,7 @@ pub(crate) trait BoringCipher {
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets;
 }
 
-pub(crate) trait QuicCipher {
+pub(crate) trait QuicCipher: Send + Sync {
     /// The key size in bytes
     const KEY_SIZE: usize;
 

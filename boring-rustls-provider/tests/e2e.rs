@@ -40,6 +40,18 @@ async fn test_tls13_crypto() {
     }
 }
 
+#[test]
+#[cfg(any(feature = "fips", feature = "fips-only"))]
+fn is_fips_enabled() {
+    assert!(boring::fips::enabled());
+}
+
+#[test]
+#[cfg(not(any(feature = "fips", feature = "fips-only")))]
+fn is_fips_disabled() {
+    assert!(!boring::fips::enabled());
+}
+
 #[tokio::test]
 async fn test_tls12_ec_crypto() {
     let pki = TestPki::new(&rcgen::PKCS_ECDSA_P256_SHA256);
