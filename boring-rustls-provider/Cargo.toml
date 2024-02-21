@@ -12,9 +12,8 @@ default = ["tls12"]
 # Use a FIPS-validated version of boringssl.
 fips = ["boring/fips", "boring-sys/fips"]
 logging = ["log"]
-fips-only = []
+fips-only = ["boring/fips", "boring-sys/fips"]
 tls12 = ["rustls/tls12"]
-
 
 [dependencies]
 aead = {version = "0.5", default_features = false, features = ["alloc"] }

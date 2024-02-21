@@ -38,6 +38,6 @@ pub(crate) fn log_and_map<E: core::fmt::Display, T>(func: &'static str, e: E, ma
 }
 
 #[cfg(not(feature = "log"))]
-pub(crate) fn log_and_map<E: core::fmt::Display, T>(func: &'static str, e: E, mapped: T) -> T {
+pub(crate) fn log_and_map<E: core::fmt::Display, T>(_func: &'static str, _e: E, mapped: T) -> T {
     mapped
 }
