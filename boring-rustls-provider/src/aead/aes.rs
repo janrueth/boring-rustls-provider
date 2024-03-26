@@ -17,6 +17,9 @@ impl BoringCipher for Aes128 {
 
     const TAG_LEN: usize = 16;
 
+    const INTEGRITY_LIMIT: u64 = 1 << 52;
+    const CONFIDENTIALITY_LIMIT: u64 = 1 << 23;
+
     fn new_cipher() -> Algorithm {
         Algorithm::aes_128_gcm()
     }
@@ -57,6 +60,9 @@ impl BoringCipher for Aes256 {
     const KEY_SIZE: usize = 32;
 
     const TAG_LEN: usize = 16;
+
+    const INTEGRITY_LIMIT: u64 = 1 << 52;
+    const CONFIDENTIALITY_LIMIT: u64 = 1 << 23;
 
     fn new_cipher() -> Algorithm {
         Algorithm::aes_256_gcm()
