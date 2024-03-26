@@ -20,6 +20,9 @@ impl BoringCipher for ChaCha20Poly1305 {
 
     const TAG_LEN: usize = 16;
 
+    const INTEGRITY_LIMIT: u64 = 1 << 36;
+    const CONFIDENTIALITY_LIMIT: u64 = u64::MAX;
+
     fn new_cipher() -> Algorithm {
         Algorithm::chacha20_poly1305()
     }

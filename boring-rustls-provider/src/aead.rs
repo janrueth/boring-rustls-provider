@@ -1,9 +1,11 @@
 use std::marker::PhantomData;
 
-use aead::{AeadCore, AeadInPlace, Nonce, Tag};
+use aead::{AeadCore, AeadInPlace, Buffer, Nonce, Tag};
 use boring::error::ErrorStack;
 use boring_additions::aead::Algorithm;
-use rustls::crypto::cipher::{self, make_tls12_aad, make_tls13_aad, Iv};
+use rustls::crypto::cipher::{
+    self, make_tls12_aad, make_tls13_aad, BorrowedPayload, Iv, PrefixedPayload,
+};
 use rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
 
 use crate::helper::log_and_map;
@@ -24,6 +26,12 @@ pub(crate) trait BoringCipher {
 
     /// The length of the authentication tag
     const TAG_LEN: usize;
+
+    /// integrity limit
+    const INTEGRITY_LIMIT: u64;
+
+    /// confidentiality limit
+    const CONFIDENTIALITY_LIMIT: u64;
 
     /// Constructs a new instance of this cipher as an AEAD algorithm
     fn new_cipher() -> Algorithm;
@@ -123,11 +131,10 @@ where
 {
     fn encrypt(
         &mut self,
-        msg: cipher::BorrowedPlainMessage,
+        msg: cipher::OutboundPlainMessage,
         seq: u64,
-    ) -> Result<cipher::OpaqueMessage, rustls::Error> {
+    ) -> Result<cipher::OutboundOpaqueMessage, rustls::Error> {
         let nonce = cipher::Nonce::new(&self.iv, seq);
-
         match self.tls_version {
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => {
@@ -136,37 +143,41 @@ where
 
                 let total_len = self.encrypted_payload_len(msg.payload.len());
 
-                let mut full_payload = Vec::with_capacity(total_len);
+                let mut full_payload = PrefixedPayload::with_capacity(total_len);
                 full_payload.extend_from_slice(&nonce.0.as_ref()[fixed_iv_len..]);
-                full_payload.extend_from_slice(msg.payload);
+                full_payload.extend_from_chunks(&msg.payload);
                 full_payload.extend_from_slice(&vec![0u8; self.crypter.max_overhead()]);
 
-                let (_, payload) = full_payload.split_at_mut(explicit_nonce_len);
+                let (_, payload) = full_payload.as_mut().split_at_mut(explicit_nonce_len);
                 let (payload, tag) = payload.split_at_mut(msg.payload.len());
                 let aad = cipher::make_tls12_aad(seq, msg.typ, msg.version, msg.payload.len());
                 self.crypter
                     .seal_in_place(&nonce.0, &aad, payload, tag)
                     .map_err(|_| rustls::Error::EncryptError)
-                    .map(|_| cipher::OpaqueMessage::new(msg.typ, msg.version, full_payload))
+                    .map(|_| cipher::OutboundOpaqueMessage::new(msg.typ, msg.version, full_payload))
             }
 
             ProtocolVersion::TLSv1_3 => {
                 let total_len = self.encrypted_payload_len(msg.payload.len());
 
-                let mut payload = Vec::with_capacity(total_len);
-                payload.extend_from_slice(msg.payload);
-                payload.push(msg.typ.get_u8());
+                let mut payload = PrefixedPayload::with_capacity(total_len);
+                payload.extend_from_chunks(&msg.payload);
+                payload.extend_from_slice(&msg.typ.to_array());
 
                 let aad = cipher::make_tls13_aad(total_len);
-                self.encrypt_in_place(Nonce::<T>::from_slice(&nonce.0), &aad, &mut payload)
-                    .map_err(|_| rustls::Error::EncryptError)
-                    .map(|_| {
-                        cipher::OpaqueMessage::new(
-                            ContentType::ApplicationData,
-                            ProtocolVersion::TLSv1_2,
-                            payload,
-                        )
-                    })
+                self.encrypt_in_place(
+                    Nonce::<T>::from_slice(&nonce.0),
+                    &aad,
+                    &mut EncryptBufferAdapter(&mut payload),
+                )
+                .map_err(|_| rustls::Error::EncryptError)
+                .map(|_| {
+                    cipher::OutboundOpaqueMessage::new(
+                        ContentType::ApplicationData,
+                        ProtocolVersion::TLSv1_2,
+                        payload,
+                    )
+                })
             }
             _ => unimplemented!(),
         }
@@ -187,11 +198,11 @@ impl<T> cipher::MessageDecrypter for BoringAeadCrypter<T>
 where
     T: BoringAead,
 {
-    fn decrypt(
+    fn decrypt<'a>(
         &mut self,
-        mut m: cipher::OpaqueMessage,
+        mut m: cipher::InboundOpaqueMessage<'a>,
         seq: u64,
-    ) -> Result<cipher::PlainMessage, rustls::Error> {
+    ) -> Result<cipher::InboundPlainMessage<'a>, rustls::Error> {
         match self.tls_version {
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => {
@@ -199,11 +210,11 @@ where
 
                 // payload is: [nonce] | [ciphertext] | [auth tag]
                 let actual_payload_length =
-                    m.payload().len() - self.crypter.max_overhead() - explicit_nonce_len;
+                    m.payload.len() - self.crypter.max_overhead() - explicit_nonce_len;
 
                 let aad = make_tls12_aad(seq, m.typ, m.version, actual_payload_length);
 
-                let payload = m.payload_mut();
+                let payload = &mut m.payload;
 
                 // get the nonce
                 let (explicit_nonce, payload) = payload.split_at_mut(explicit_nonce_len);
@@ -230,20 +241,24 @@ where
                     .map_err(|e| log_and_map("open_in_place", e, rustls::Error::DecryptError))
                     .map(|_| {
                         // rotate the nonce to the end
-                        m.payload_mut().rotate_left(explicit_nonce_len);
+                        m.payload.rotate_left(explicit_nonce_len);
 
                         // truncate buffer to the actual payload
-                        m.payload_mut().truncate(actual_payload_length);
+                        m.payload.truncate(actual_payload_length);
 
                         m.into_plain_message()
                     })
             }
             ProtocolVersion::TLSv1_3 => {
                 let nonce = cipher::Nonce::new(&self.iv, seq);
-                let aad = make_tls13_aad(m.payload().len());
-                self.decrypt_in_place(Nonce::<T>::from_slice(&nonce.0), &aad, m.payload_mut())
-                    .map_err(|_| rustls::Error::DecryptError)
-                    .and_then(|_| m.into_tls13_unpadded_message())
+                let aad = make_tls13_aad(m.payload.len());
+                self.decrypt_in_place(
+                    Nonce::<T>::from_slice(&nonce.0),
+                    &aad,
+                    &mut DecryptBufferAdapter(&mut m.payload),
+                )
+                .map_err(|_| rustls::Error::DecryptError)
+                .and_then(|_| m.into_tls13_unpadded_message())
             }
             _ => unimplemented!(),
         }
@@ -289,6 +304,14 @@ where
 
     fn tag_len(&self) -> usize {
         <T as BoringCipher>::TAG_LEN
+    }
+
+    fn confidentiality_limit(&self) -> u64 {
+        <T as BoringCipher>::CONFIDENTIALITY_LIMIT
+    }
+
+    fn integrity_limit(&self) -> u64 {
+        <T as BoringCipher>::INTEGRITY_LIMIT
     }
 }
 
@@ -491,6 +514,55 @@ where
 
     fn aead_key_len(&self) -> usize {
         <T as QuicCipher>::KEY_SIZE
+    }
+}
+
+struct DecryptBufferAdapter<'a, 'p>(&'a mut BorrowedPayload<'p>);
+
+impl AsRef<[u8]> for DecryptBufferAdapter<'_, '_> {
+    fn as_ref(&self) -> &[u8] {
+        self.0
+    }
+}
+
+impl AsMut<[u8]> for DecryptBufferAdapter<'_, '_> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0
+    }
+}
+
+impl Buffer for DecryptBufferAdapter<'_, '_> {
+    fn extend_from_slice(&mut self, _: &[u8]) -> aead::Result<()> {
+        unreachable!("not used by `AeadInPlace::decrypt_in_place`")
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.0.truncate(len)
+    }
+}
+
+struct EncryptBufferAdapter<'a>(&'a mut PrefixedPayload);
+
+impl AsRef<[u8]> for EncryptBufferAdapter<'_> {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl AsMut<[u8]> for EncryptBufferAdapter<'_> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
+impl Buffer for EncryptBufferAdapter<'_> {
+    fn extend_from_slice(&mut self, other: &[u8]) -> aead::Result<()> {
+        self.0.extend_from_slice(other);
+        Ok(())
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.0.truncate(len)
     }
 }
 
