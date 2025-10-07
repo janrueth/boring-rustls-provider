@@ -7,15 +7,7 @@ description = "Boring Rustls provider example code and tests."
 publish = false
 
 [dependencies]
-docopt = "~1.1"
-env_logger = "0.10"
-log = { version = "0.4.4" }
-mio = { version = "0.8", features = ["net", "os-poll"] }
-pki-types = { package = "rustls-pki-types", version = "0.2" }
-rcgen = { version = "0.11.3", features = ["pem"], default-features = false }
+env_logger = "0.11"
 rustls = { workspace = true, features = [ "logging", "std" ]}
 boring-rustls-provider = { path = "../boring-rustls-provider", features = ["logging"] }
-rustls-pemfile = { workspace = true }
-serde = "1.0"
-serde_derive = "1.0"
 webpki-roots = { workspace = true }
