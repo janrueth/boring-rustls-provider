@@ -5,7 +5,7 @@ use boring::{
     rsa::{Padding, Rsa},
     sign::RsaPssSaltlen,
 };
-use rustls::SignatureScheme;
+use rustls::{pki_types::alg_id, SignatureScheme};
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 use spki::der::Reader;
 
@@ -73,18 +73,18 @@ impl SignatureVerificationAlgorithm for BoringRsaVerifier {
     }
 
     fn public_key_alg_id(&self) -> rustls_pki_types::AlgorithmIdentifier {
-        webpki::alg_id::RSA_ENCRYPTION
+        alg_id::RSA_ENCRYPTION
     }
 
     fn signature_alg_id(&self) -> rustls_pki_types::AlgorithmIdentifier {
         match self.0 {
-            SignatureScheme::RSA_PKCS1_SHA256 => webpki::alg_id::RSA_PKCS1_SHA256,
-            SignatureScheme::RSA_PKCS1_SHA384 => webpki::alg_id::RSA_PKCS1_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA512 => webpki::alg_id::RSA_PKCS1_SHA512,
+            SignatureScheme::RSA_PKCS1_SHA256 => alg_id::RSA_PKCS1_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384 => alg_id::RSA_PKCS1_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512 => alg_id::RSA_PKCS1_SHA512,
 
-            SignatureScheme::RSA_PSS_SHA256 => webpki::alg_id::RSA_PSS_SHA256,
-            SignatureScheme::RSA_PSS_SHA384 => webpki::alg_id::RSA_PSS_SHA384,
-            SignatureScheme::RSA_PSS_SHA512 => webpki::alg_id::RSA_PSS_SHA512,
+            SignatureScheme::RSA_PSS_SHA256 => alg_id::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384 => alg_id::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512 => alg_id::RSA_PSS_SHA512,
 
             _ => unimplemented!(),
         }
@@ -95,7 +95,7 @@ fn rsa_verifier_from_params(
     key: &boring::pkey::PKeyRef<boring::pkey::Public>,
     digest: MessageDigest,
     padding: Padding,
-) -> boring::sign::Verifier {
+) -> boring::sign::Verifier<'_> {
     let mut verifier = boring::sign::Verifier::new(digest, key).expect("failed getting verifier");
     verifier
         .set_rsa_padding(padding)

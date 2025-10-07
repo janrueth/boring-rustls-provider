@@ -2,7 +2,7 @@ use std::ptr;
 
 use boring::error::ErrorStack;
 use foreign_types::ForeignType;
-use rustls::SignatureScheme;
+use rustls::{pki_types::alg_id, SignatureScheme};
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
 use crate::helper::{cvt_p, log_and_map};
@@ -41,7 +41,7 @@ impl SignatureVerificationAlgorithm for BoringEdVerifier {
 
     fn signature_alg_id(&self) -> rustls_pki_types::AlgorithmIdentifier {
         match self.0 {
-            SignatureScheme::ED25519 => webpki::alg_id::ED25519,
+            SignatureScheme::ED25519 => alg_id::ED25519,
             SignatureScheme::ED448 => {
                 // rfc8410#section-3: 1.3.101.113: -> DER: 06 03 2B 65 71
                 rustls_pki_types::AlgorithmIdentifier::from_slice(&[0x06, 0x03, 0x2B, 0x65, 0x71])
@@ -53,7 +53,7 @@ impl SignatureVerificationAlgorithm for BoringEdVerifier {
 
 fn ed_verifier_from_params(
     key: &boring::pkey::PKeyRef<boring::pkey::Public>,
-) -> Result<boring::sign::Verifier, ErrorStack> {
+) -> Result<boring::sign::Verifier<'_>, ErrorStack> {
     boring::sign::Verifier::new_without_digest(key)
 }
 

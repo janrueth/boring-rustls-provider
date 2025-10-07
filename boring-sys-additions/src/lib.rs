@@ -1,7 +1,7 @@
 use std::ffi;
 
 extern "C" {
-    /// Calculates `out_len` bytes of the TLS PDF, using `digest`, and
+    /// Calculates `out_len` bytes of the TLS PRF, using `digest`, and
     /// writes them to `out`. It returns one on success and zero on error.
     ///
     /// This isn't part of the public headers in `BoringSSL` but it is exported

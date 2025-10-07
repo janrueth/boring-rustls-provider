@@ -63,7 +63,7 @@ fn rsa_signer_from_params(
     key: &PKeyRef<Private>,
     digest: MessageDigest,
     padding: Padding,
-) -> Signer {
+) -> Signer<'_> {
     let mut signer = Signer::new(digest, key).expect("failed getting signer");
     signer
         .set_rsa_padding(padding)
@@ -80,7 +80,7 @@ fn rsa_signer_from_params(
     signer
 }
 
-fn ec_signer_from_params(key: &PKeyRef<Private>, digest: MessageDigest) -> Signer {
+fn ec_signer_from_params(key: &PKeyRef<Private>, digest: MessageDigest) -> Signer<'_> {
     let signer = Signer::new(digest, key).expect("failed getting signer");
     signer
 }
@@ -131,7 +131,7 @@ impl SigningKey for BoringPrivateKey {
 pub struct BoringSigner(Arc<boring::pkey::PKey<Private>>, rustls::SignatureScheme);
 
 impl BoringSigner {
-    fn get_signer(&self) -> Signer {
+    fn get_signer(&self) -> Signer<'_> {
         match self.1 {
             SignatureScheme::RSA_PKCS1_SHA256 => {
                 rsa_signer_from_params(self.0.as_ref(), MessageDigest::sha256(), Padding::PKCS1)

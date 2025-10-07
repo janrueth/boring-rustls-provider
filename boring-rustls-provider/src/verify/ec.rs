@@ -1,5 +1,5 @@
 use boring::{error::ErrorStack, hash::MessageDigest};
-use rustls::SignatureScheme;
+use rustls::{pki_types::alg_id, SignatureScheme};
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
 use crate::helper;
@@ -52,8 +52,8 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
 
     fn public_key_alg_id(&self) -> rustls_pki_types::AlgorithmIdentifier {
         match self.0 {
-            SignatureScheme::ECDSA_NISTP256_SHA256 => webpki::alg_id::ECDSA_P256,
-            SignatureScheme::ECDSA_NISTP384_SHA384 => webpki::alg_id::ECDSA_P384,
+            SignatureScheme::ECDSA_NISTP256_SHA256 => alg_id::ECDSA_P256,
+            SignatureScheme::ECDSA_NISTP384_SHA384 => alg_id::ECDSA_P384,
             SignatureScheme::ECDSA_NISTP521_SHA512 => {
                 // See rfc5480 appendix-A (secp521r1): 1.3.132.0.35
                 rustls_pki_types::AlgorithmIdentifier::from_slice(&[
@@ -67,8 +67,8 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
 
     fn signature_alg_id(&self) -> rustls_pki_types::AlgorithmIdentifier {
         match self.0 {
-            SignatureScheme::ECDSA_NISTP256_SHA256 => webpki::alg_id::ECDSA_SHA256,
-            SignatureScheme::ECDSA_NISTP384_SHA384 => webpki::alg_id::ECDSA_SHA384,
+            SignatureScheme::ECDSA_NISTP256_SHA256 => alg_id::ECDSA_SHA256,
+            SignatureScheme::ECDSA_NISTP384_SHA384 => alg_id::ECDSA_SHA384,
             SignatureScheme::ECDSA_NISTP521_SHA512 => {
                 // See rfc5480 appendix-A (ecdsa-with-SHA512): 1.2.840.10045.4.3.4
                 rustls_pki_types::AlgorithmIdentifier::from_slice(&[
@@ -83,7 +83,7 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
 fn ec_verifier_from_params(
     key: &boring::pkey::PKeyRef<boring::pkey::Public>,
     digest: MessageDigest,
-) -> Result<boring::sign::Verifier, ErrorStack> {
+) -> Result<boring::sign::Verifier<'_>, ErrorStack> {
     boring::sign::Verifier::new(digest, key)
 }
 

@@ -31,7 +31,7 @@ impl KeyExchange {
             let pubkey = boring_sys::DH_get0_pub_key(me.dh.as_ptr());
 
             // figure out how many bytes we need, round up to the next full byte
-            let size = (boring_sys::BN_num_bits(pubkey) as usize + 7) / 8;
+            let size = (boring_sys::BN_num_bits(pubkey) as usize).div_ceil(8);
 
             // alloc a vector with enough capacity
             let mut v = Vec::with_capacity(size);
