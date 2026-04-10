@@ -139,7 +139,7 @@ impl crypto::ActiveKeyExchange for KeyExchange {
         peer_pub_key: &[u8],
     ) -> Result<crypto::SharedSecret, rustls::Error> {
         self.diffie_hellman(peer_pub_key)
-            .map(|x| crypto::SharedSecret::from(x.as_slice()))
+            .map(crypto::SharedSecret::from)
             .map_err(|e| {
                 log_and_map(
                     "ex::KeyExchange::diffie_hellman",
