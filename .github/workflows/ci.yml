@@ -63,6 +63,44 @@ jobs:
     - name: Build (logging,tls12)
       run: make build FEATURES="logging,tls12"
 
+  test-mlkem:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Lint (mlkem)
+      run: make lint FEATURES="mlkem"
+    - name: Test (mlkem)
+      run: make test FEATURES="mlkem"
+    - name: Build (mlkem)
+      run: make build FEATURES="mlkem"
+
+  test-mlkem-tls12:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Lint (mlkem,tls12)
+      run: make lint FEATURES="mlkem,tls12"
+    - name: Test (mlkem,tls12)
+      run: make test FEATURES="mlkem,tls12"
+    - name: Build (mlkem,tls12)
+      run: make build FEATURES="mlkem,tls12"
+
+  test-fips:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Test (fips)
+      run: cargo test -p boring-rustls-provider --all-targets --features fips
+
   check-fips:
     runs-on: ubuntu-latest
 

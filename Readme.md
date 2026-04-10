@@ -13,8 +13,9 @@ out of the box; additional capabilities are opt-in.
 
 | Feature | Description |
 |---|---|
-| `fips` | Build against FIPS-validated BoringSSL and restrict the provider to FIPS-approved algorithms only (SP 800-52r2). See [FIPS mode](#fips-mode) below. |
+| `fips` | Build against FIPS-validated BoringSSL and restrict the provider to FIPS-approved algorithms only (SP 800-52r2). Implies `mlkem`. See [FIPS mode](#fips-mode) below. |
 | `fips-precompiled` | Deprecated alias for `fips`. Matches the `boring` crate's feature name. |
+| `mlkem` | Enable the X25519MLKEM768 post-quantum hybrid key exchange group (`draft-ietf-tls-ecdhe-mlkem-00`). Uses ML-KEM-768 (FIPS 203) combined with X25519. See [Post-quantum key exchange](#post-quantum-key-exchange). |
 | `tls12` | Enable TLS 1.2 cipher suites (`ECDHE-ECDSA` and `ECDHE-RSA` with AES-GCM and ChaCha20-Poly1305). Without this only TLS 1.3 is available. |
 | `logging` | Enable debug logging of BoringSSL errors and provider internals via the `log` crate. |
 
@@ -41,6 +42,11 @@ ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 
 ### Key Exchange Groups
 
+Post-quantum hybrid (requires `mlkem` feature, TLS 1.3 only):
+```
+X25519MLKEM768 (0x11ec)
+```
+
 ECDHE:
 ```
 X25519
@@ -54,6 +60,9 @@ FFDHE:
 ```
 ffdhe2048
 ```
+
+When `mlkem` is enabled, X25519MLKEM768 is the preferred (first) group in both
+FIPS and non-FIPS configurations.
 
 ### Signature Algorithms
 
@@ -71,6 +80,25 @@ ED25519
 ED448
 ```
 
+## Post-Quantum Key Exchange
+
+The `mlkem` feature enables the **X25519MLKEM768** hybrid key exchange group
+per `draft-ietf-tls-ecdhe-mlkem-00`. This combines classical X25519
+Diffie-Hellman with ML-KEM-768 (FIPS 203) post-quantum key encapsulation,
+ensuring that connections are secure against both classical and quantum
+adversaries.
+
+The `fips` feature implies `mlkem`, so X25519MLKEM768 is always available
+in FIPS mode.
+
+Wire format (ML-KEM component first in all encodings):
+- Client key share: `mlkem_pk(1184) || x25519_pk(32)` = 1216 bytes
+- Server key share: `mlkem_ct(1088) || x25519_pk(32)` = 1120 bytes
+- Shared secret: `mlkem_ss(32) || x25519_ss(32)` = 64 bytes
+
+Interoperability has been verified against Cloudflare's PQ endpoints
+(`pq.cloudflareresearch.com`).
+
 ## FIPS Mode
 
 When the `fips` feature is enabled the provider builds against a FIPS-validated
@@ -79,12 +107,10 @@ under [SP 800-52r2](https://doi.org/10.6028/NIST.SP.800-52r2), aligned with
 boring's `fips202205` compliance policy:
 
 - **Cipher suites**: AES-GCM only (no ChaCha20-Poly1305).
-- **Key exchange groups**: P-256 and P-384 only (no X25519, X448, P-521, or FFDHE).
+- **Key exchange groups**: X25519MLKEM768 (preferred), P-256, and P-384 only
+  (no standalone X25519, X448, P-521, or FFDHE).
 - **Signature algorithms**: RSA PKCS#1 / PSS and ECDSA with P-256 or P-384 only
   (no P-521, Ed25519, or Ed448).
-
-Post-quantum hybrid key exchange (`P256Kyber768Draft00`) is planned for the
-FIPS group set but not yet implemented.
 
 ## Workspace Structure
 
