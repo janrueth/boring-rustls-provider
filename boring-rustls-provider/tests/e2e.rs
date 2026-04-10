@@ -5,8 +5,6 @@ use tokio::{
     net::TcpStream,
 };
 
-#[cfg(feature = "tls12")]
-use boring_rustls_provider::tls12;
 use boring_rustls_provider::tls13;
 #[cfg(feature = "tls12")]
 use rustls::version::TLS12;
@@ -15,6 +13,63 @@ use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
+fn tls13_provider_suites() -> Vec<SupportedCipherSuite> {
+    boring_rustls_provider::provider()
+        .cipher_suites
+        .into_iter()
+        .filter(|suite| matches!(suite, SupportedCipherSuite::Tls13(_)))
+        .collect()
+}
+
+#[cfg(feature = "tls12")]
+fn tls12_provider_suites_for_ecdsa() -> Vec<SupportedCipherSuite> {
+    boring_rustls_provider::provider()
+        .cipher_suites
+        .into_iter()
+        .filter(|suite| {
+            let SupportedCipherSuite::Tls12(suite) = suite else {
+                return false;
+            };
+
+            suite.sign.iter().any(|scheme| {
+                matches!(
+                    scheme,
+                    rustls::SignatureScheme::ECDSA_NISTP256_SHA256
+                        | rustls::SignatureScheme::ECDSA_NISTP384_SHA384
+                        | rustls::SignatureScheme::ECDSA_NISTP521_SHA512
+                        | rustls::SignatureScheme::ED25519
+                        | rustls::SignatureScheme::ED448
+                )
+            })
+        })
+        .collect()
+}
+
+#[cfg(feature = "tls12")]
+fn tls12_provider_suites_for_rsa() -> Vec<SupportedCipherSuite> {
+    boring_rustls_provider::provider()
+        .cipher_suites
+        .into_iter()
+        .filter(|suite| {
+            let SupportedCipherSuite::Tls12(suite) = suite else {
+                return false;
+            };
+
+            suite.sign.iter().any(|scheme| {
+                matches!(
+                    scheme,
+                    rustls::SignatureScheme::RSA_PKCS1_SHA256
+                        | rustls::SignatureScheme::RSA_PKCS1_SHA384
+                        | rustls::SignatureScheme::RSA_PKCS1_SHA512
+                        | rustls::SignatureScheme::RSA_PSS_SHA256
+                        | rustls::SignatureScheme::RSA_PSS_SHA384
+                        | rustls::SignatureScheme::RSA_PSS_SHA512
+                )
+            })
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn test_tls13_crypto() {
     let pki = TestPki::new(&rcgen::PKCS_ECDSA_P256_SHA256);
@@ -22,17 +77,7 @@ async fn test_tls13_crypto() {
     let root_store = pki.client_root_store();
     let server_config = pki.server_config();
 
-    #[cfg(feature = "fips")]
-    let ciphers = vec![
-        SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
-        SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
-    ];
-    #[cfg(not(feature = "fips"))]
-    let ciphers = vec![
-        SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
-        SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
-        SupportedCipherSuite::Tls13(&tls13::CHACHA20_POLY1305_SHA256),
-    ];
+    let ciphers = tls13_provider_suites();
 
     for cipher in ciphers {
         let config = ClientConfig::builder_with_provider(Arc::new(
@@ -44,6 +89,43 @@ async fn test_tls13_crypto() {
         .with_no_client_auth();
 
         do_exchange(config, server_config.clone()).await;
+    }
+}
+
+#[test]
+fn provider_kx_groups_reject_invalid_peer_keys_without_panicking() {
+    for group in boring_rustls_provider::provider().kx_groups {
+        let kx = group.start().expect("provider KX group should initialize");
+
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kx.complete(&[])));
+        assert!(outcome.is_ok(), "KX group {:?} panicked", group.name());
+        assert!(
+            outcome.expect("already checked for panic").is_err(),
+            "KX group {:?} accepted an invalid key share",
+            group.name()
+        );
+    }
+}
+
+#[test]
+fn provider_verifiers_reject_malformed_inputs_without_panicking() {
+    let provider = boring_rustls_provider::provider();
+
+    for (index, verifier) in provider
+        .signature_verification_algorithms
+        .all
+        .iter()
+        .enumerate()
+    {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            verifier.verify_signature(&[], b"message", &[])
+        }));
+
+        assert!(outcome.is_ok(), "verifier #{index} panicked");
+        assert!(
+            outcome.expect("already checked for panic").is_err(),
+            "verifier #{index} accepted malformed inputs"
+        );
     }
 }
 
@@ -229,6 +311,25 @@ fn fips_provider_excludes_chacha20_cipher_suites() {
 
 #[test]
 #[cfg(feature = "fips")]
+fn fips_provider_with_ciphers_filters_non_fips_input() {
+    use rustls::CipherSuite;
+
+    let provider = boring_rustls_provider::provider_with_ciphers(vec![
+        SupportedCipherSuite::Tls13(&tls13::CHACHA20_POLY1305_SHA256),
+        SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
+    ]);
+
+    let suites = provider
+        .cipher_suites
+        .iter()
+        .map(|suite| suite.suite())
+        .collect::<Vec<_>>();
+
+    assert_eq!(suites, vec![CipherSuite::TLS13_AES_128_GCM_SHA256]);
+}
+
+#[test]
+#[cfg(feature = "fips")]
 fn fips_provider_restricts_kx_groups() {
     use rustls::NamedGroup;
 
@@ -311,6 +412,40 @@ fn non_fips_provider_keeps_non_fips_algorithms() {
 }
 
 #[test]
+#[cfg(not(feature = "fips"))]
+fn non_fips_provider_components_report_non_fips() {
+    let provider = boring_rustls_provider::provider();
+
+    assert!(!provider.secure_random.fips());
+    assert!(!provider.key_provider.fips());
+}
+
+#[test]
+#[cfg(not(feature = "fips"))]
+fn non_fips_provider_with_ciphers_keeps_requested_suites() {
+    use rustls::CipherSuite;
+
+    let provider = boring_rustls_provider::provider_with_ciphers(vec![
+        SupportedCipherSuite::Tls13(&tls13::CHACHA20_POLY1305_SHA256),
+        SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
+    ]);
+
+    let suites = provider
+        .cipher_suites
+        .iter()
+        .map(|suite| suite.suite())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        suites,
+        vec![
+            CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
+            CipherSuite::TLS13_AES_128_GCM_SHA256,
+        ]
+    );
+}
+
+#[test]
 #[cfg(all(not(feature = "fips"), feature = "mlkem"))]
 fn non_fips_provider_includes_pq_group() {
     use rustls::NamedGroup;
@@ -347,17 +482,7 @@ async fn test_tls12_ec_crypto() {
     let root_store = pki.client_root_store();
     let server_config = pki.server_config();
 
-    #[cfg(feature = "fips")]
-    let ciphers = vec![
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES128_GCM_SHA256),
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES256_GCM_SHA384),
-    ];
-    #[cfg(not(feature = "fips"))]
-    let ciphers = vec![
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES128_GCM_SHA256),
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES256_GCM_SHA384),
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256),
-    ];
+    let ciphers = tls12_provider_suites_for_ecdsa();
 
     for cipher in ciphers {
         let config = ClientConfig::builder_with_provider(Arc::new(
@@ -380,17 +505,7 @@ async fn test_tls12_rsa_crypto() {
     let root_store = pki.client_root_store();
     let server_config = pki.server_config();
 
-    #[cfg(feature = "fips")]
-    let ciphers = vec![
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES256_GCM_SHA384),
-    ];
-    #[cfg(not(feature = "fips"))]
-    let ciphers = vec![
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES256_GCM_SHA384),
-        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256),
-    ];
+    let ciphers = tls12_provider_suites_for_rsa();
 
     for cipher in ciphers {
         let config = ClientConfig::builder_with_provider(Arc::new(

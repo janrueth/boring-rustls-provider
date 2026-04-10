@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use helper::log_and_map;
+#[cfg(all(feature = "fips", feature = "log"))]
+use log::warn;
 use rustls::{
     crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup},
     SupportedCipherSuite,
@@ -33,6 +35,25 @@ pub fn provider() -> CryptoProvider {
 }
 
 pub fn provider_with_ciphers(ciphers: Vec<rustls::SupportedCipherSuite>) -> CryptoProvider {
+    #[cfg(feature = "fips")]
+    let ciphers = {
+        let original_len = ciphers.len();
+        let filtered = ciphers
+            .into_iter()
+            .filter(|suite| ALL_FIPS_CIPHER_SUITES.contains(suite))
+            .collect::<Vec<_>>();
+
+        if filtered.len() != original_len {
+            #[cfg(feature = "log")]
+            warn!(
+                "filtered {} non-FIPS cipher suite(s) from provider_with_ciphers",
+                original_len - filtered.len()
+            );
+        }
+
+        filtered
+    };
+
     CryptoProvider {
         cipher_suites: ciphers,
         #[cfg(feature = "fips")]
@@ -55,6 +76,10 @@ impl rustls::crypto::SecureRandom for Provider {
     fn fill(&self, bytes: &mut [u8]) -> Result<(), rustls::crypto::GetRandomFailed> {
         boring::rand::rand_bytes(bytes).map_err(|e| log_and_map("rand_bytes", e, GetRandomFailed))
     }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips")
+    }
 }
 
 impl rustls::crypto::KeyProvider for Provider {
@@ -63,6 +88,10 @@ impl rustls::crypto::KeyProvider for Provider {
         key_der: PrivateKeyDer<'static>,
     ) -> Result<Arc<dyn rustls::sign::SigningKey>, rustls::Error> {
         sign::BoringPrivateKey::try_from(key_der).map(|x| Arc::new(x) as _)
+    }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips")
     }
 }
 

@@ -2,7 +2,7 @@ use std::io::{stdout, Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let mut root_store = rustls::RootCertStore::empty();
@@ -11,13 +11,15 @@ fn main() {
     let config =
         rustls::ClientConfig::builder_with_provider(boring_rustls_provider::provider().into())
             .with_safe_default_protocol_versions()
-            .unwrap()
+            .map_err(|_| std::io::Error::other("failed selecting protocol versions"))?
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
-    let server_name = "www.rust-lang.org".try_into().unwrap();
-    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
-    let mut sock = TcpStream::connect("www.rust-lang.org:443").unwrap();
+    let server_name = "www.rust-lang.org"
+        .try_into()
+        .map_err(|_| std::io::Error::other("invalid server name"))?;
+    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name)?;
+    let mut sock = TcpStream::connect("www.rust-lang.org:443")?;
     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
     tls.write_all(
         concat!(
@@ -28,16 +30,19 @@ fn main() {
             "\r\n"
         )
         .as_bytes(),
-    )
-    .unwrap();
-    let ciphersuite = tls.conn.negotiated_cipher_suite().unwrap();
+    )?;
+    let ciphersuite = tls
+        .conn
+        .negotiated_cipher_suite()
+        .ok_or_else(|| std::io::Error::other("no negotiated ciphersuite"))?;
     writeln!(
         &mut std::io::stderr(),
         "Current ciphersuite: {:?}",
         ciphersuite.suite()
-    )
-    .unwrap();
+    )?;
     let mut plaintext = Vec::new();
-    tls.read_to_end(&mut plaintext).unwrap();
-    stdout().write_all(&plaintext).unwrap();
+    tls.read_to_end(&mut plaintext)?;
+    stdout().write_all(&plaintext)?;
+
+    Ok(())
 }

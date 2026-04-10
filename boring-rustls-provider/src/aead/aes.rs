@@ -20,6 +20,7 @@ impl BoringCipher for Aes128 {
 
     const INTEGRITY_LIMIT: u64 = 1 << 52;
     const CONFIDENTIALITY_LIMIT: u64 = 1 << 23;
+    const FIPS_APPROVED: bool = true;
 
     fn new_cipher() -> Algorithm {
         Algorithm::aes_128_gcm()
@@ -40,7 +41,7 @@ impl QuicCipher for Aes128 {
     const KEY_SIZE: usize = <Self as BoringCipher>::KEY_SIZE;
     const SAMPLE_LEN: usize = 16;
 
-    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> [u8; 5] {
+    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> Result<[u8; 5], rustls::Error> {
         quic_header_protection_mask::<
             { <Self as QuicCipher>::KEY_SIZE },
             { <Self as QuicCipher>::SAMPLE_LEN },
@@ -65,6 +66,7 @@ impl BoringCipher for Aes256 {
 
     const INTEGRITY_LIMIT: u64 = 1 << 52;
     const CONFIDENTIALITY_LIMIT: u64 = 1 << 23;
+    const FIPS_APPROVED: bool = true;
 
     fn new_cipher() -> Algorithm {
         Algorithm::aes_256_gcm()
@@ -85,7 +87,7 @@ impl QuicCipher for Aes256 {
     const KEY_SIZE: usize = <Self as BoringCipher>::KEY_SIZE;
     const SAMPLE_LEN: usize = 16;
 
-    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> [u8; 5] {
+    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> Result<[u8; 5], rustls::Error> {
         quic_header_protection_mask::<
             { <Self as QuicCipher>::KEY_SIZE },
             { <Self as QuicCipher>::SAMPLE_LEN },
@@ -97,19 +99,32 @@ fn quic_header_protection_mask<const KEY_SIZE: usize, const SAMPLE_LEN: usize>(
     cipher: boring::symm::Cipher,
     hp_key: &[u8],
     sample: &[u8],
-) -> [u8; 5] {
-    assert!(hp_key.len() == KEY_SIZE);
-    assert!(sample.len() >= SAMPLE_LEN);
+) -> Result<[u8; 5], rustls::Error> {
+    if hp_key.len() != KEY_SIZE {
+        return Err(rustls::Error::General(
+            "header protection key of invalid length".into(),
+        ));
+    }
+    if sample.len() != SAMPLE_LEN {
+        return Err(rustls::Error::General("sample of invalid length".into()));
+    }
 
     let mut output = [0u8; SAMPLE_LEN];
 
     let mut crypter = boring::symm::Crypter::new(cipher, boring::symm::Mode::Encrypt, hp_key, None)
-        .expect("failed getting crypter");
+        .map_err(|_| rustls::Error::General("failed generating header protection mask".into()))?;
 
-    let len = crypter.update(sample, &mut output).unwrap();
-    let _ = len + crypter.finalize(&mut output[len..]).unwrap();
+    let len = crypter
+        .update(sample, &mut output)
+        .map_err(|_| rustls::Error::General("failed generating header protection mask".into()))?;
+    let _total = len
+        + crypter.finalize(&mut output[len..]).map_err(|_| {
+            rustls::Error::General("failed generating header protection mask".into())
+        })?;
 
-    output[..5].try_into().unwrap()
+    let mut mask = [0u8; 5];
+    mask.copy_from_slice(&output[..5]);
+    Ok(mask)
 }
 
 #[cfg(test)]

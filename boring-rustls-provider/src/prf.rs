@@ -29,6 +29,10 @@ impl crypto::tls12::Prf for PrfTls1WithDigest {
         let digest = boring::hash::MessageDigest::from_nid(self.0).expect("failed getting digest");
         prf(digest, output, secret, label, seed).expect("failed calculating prf")
     }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips")
+    }
 }
 
 fn prf(

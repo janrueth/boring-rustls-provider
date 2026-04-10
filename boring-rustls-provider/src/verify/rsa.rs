@@ -64,8 +64,8 @@ impl SignatureVerificationAlgorithm for BoringRsaVerifier {
                 Padding::PKCS1_PSS,
             ),
 
-            _ => unimplemented!(),
-        };
+            _ => return Err(InvalidSignature),
+        }?;
         verifier.verify_oneshot(signature, message).map_or_else(
             |_| Err(InvalidSignature),
             |res| if res { Ok(()) } else { Err(InvalidSignature) },
@@ -86,8 +86,12 @@ impl SignatureVerificationAlgorithm for BoringRsaVerifier {
             SignatureScheme::RSA_PSS_SHA384 => alg_id::RSA_PSS_SHA384,
             SignatureScheme::RSA_PSS_SHA512 => alg_id::RSA_PSS_SHA512,
 
-            _ => unimplemented!(),
+            _ => unreachable!("BoringRsaVerifier only supports configured RSA schemes"),
         }
+    }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips")
     }
 }
 
@@ -95,21 +99,22 @@ fn rsa_verifier_from_params(
     key: &boring::pkey::PKeyRef<boring::pkey::Public>,
     digest: MessageDigest,
     padding: Padding,
-) -> boring::sign::Verifier<'_> {
-    let mut verifier = boring::sign::Verifier::new(digest, key).expect("failed getting verifier");
+) -> Result<boring::sign::Verifier<'_>, InvalidSignature> {
+    let mut verifier = boring::sign::Verifier::new(digest, key)
+        .map_err(|e| log_and_map("Verifier::new", e, InvalidSignature))?;
     verifier
         .set_rsa_padding(padding)
-        .expect("failed setting padding");
+        .map_err(|e| log_and_map("set_rsa_padding", e, InvalidSignature))?;
     if padding == Padding::PKCS1_PSS {
         verifier
             .set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH)
-            .expect("failed setting rsa_pss salt lengths");
+            .map_err(|e| log_and_map("set_rsa_pss_saltlen", e, InvalidSignature))?;
         verifier
             .set_rsa_mgf1_md(digest)
-            .expect("failed setting mgf1 digest");
+            .map_err(|e| log_and_map("set_rsa_mgf1_md", e, InvalidSignature))?;
     }
 
-    verifier
+    Ok(verifier)
 }
 
 pub(crate) fn decode_spki_spk(

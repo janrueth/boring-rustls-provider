@@ -78,11 +78,7 @@ impl Crypter {
     ///
     /// # Errors
     /// Returns the `BoringSSL` error in case of an internal error
-    ///
-    /// # Panics
-    /// * If the key length mismatches the `aead_alg` required key length
     pub fn new(aead_alg: &Algorithm, key: &[u8]) -> Result<Self, ErrorStack> {
-        assert_eq!(aead_alg.key_length(), key.len());
         boring_sys::init();
 
         let this = unsafe {
@@ -116,10 +112,6 @@ impl Crypter {
     ///
     /// # Errors
     /// In case of an error, returns the `BoringSSL` error
-    ///
-    /// # Panics
-    /// * If the `nonce` is not the expected lenght
-    /// * If the `tag` has not enough space
     pub fn seal_in_place(
         &self,
         nonce: &[u8],
@@ -127,8 +119,9 @@ impl Crypter {
         buffer: &mut [u8],
         tag: &mut [u8],
     ) -> Result<usize, ErrorStack> {
-        assert!(tag.len() >= self.max_overhead);
-        assert_eq!(nonce.len(), self.nonce_len);
+        if tag.len() < self.max_overhead || nonce.len() != self.nonce_len {
+            return Err(ErrorStack::get());
+        }
 
         let mut tag_len = tag.len();
         unsafe {
@@ -156,9 +149,6 @@ impl Crypter {
     ///
     /// # Errors
     /// In case of an error, returns the `BoringSSL` error
-    ///
-    /// # Panics
-    /// * if the nonce has the wrong lenght
     pub fn open_in_place(
         &self,
         nonce: &[u8],
@@ -166,7 +156,9 @@ impl Crypter {
         buffer: &mut [u8],
         tag: &[u8],
     ) -> Result<(), ErrorStack> {
-        assert_eq!(nonce.len(), self.nonce_len);
+        if nonce.len() != self.nonce_len {
+            return Err(ErrorStack::get());
+        }
 
         unsafe {
             cvt(boring_sys::EVP_AEAD_CTX_open_gather(
@@ -188,11 +180,11 @@ impl Crypter {
 
 #[cfg(test)]
 mod tests {
-    use super::Crypter;
+    use super::{Algorithm, Crypter};
 
     #[test]
     fn in_out() {
-        let key = Crypter::new(&super::Algorithm::aes_128_gcm(), &[0u8; 16]).unwrap();
+        let key = Crypter::new(&Algorithm::aes_128_gcm(), &[0u8; 16]).unwrap();
         let nonce = [0u8; 12];
         let associated_data = b"this is authenticated";
         let mut buffer = Vec::with_capacity(26);
@@ -206,5 +198,36 @@ mod tests {
             .unwrap();
 
         assert_eq!(b"ABCDE", buffer.as_slice());
+    }
+
+    #[test]
+    fn new_rejects_invalid_key_length() {
+        let result = Crypter::new(&Algorithm::aes_128_gcm(), &[0u8; 15]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn seal_rejects_invalid_nonce_and_tag_lengths() {
+        let key = Crypter::new(&Algorithm::aes_128_gcm(), &[0u8; 16]).unwrap();
+        let mut payload = [0u8; 8];
+
+        let mut short_tag = [0u8; 8];
+        let short_tag_result = key.seal_in_place(&[0u8; 12], b"", &mut payload, &mut short_tag);
+        assert!(short_tag_result.is_err());
+
+        let mut tag = [0u8; 16];
+        let wrong_nonce_result = key.seal_in_place(&[0u8; 11], b"", &mut payload, &mut tag);
+        assert!(wrong_nonce_result.is_err());
+    }
+
+    #[test]
+    fn open_rejects_invalid_nonce_length() {
+        let key = Crypter::new(&Algorithm::aes_128_gcm(), &[0u8; 16]).unwrap();
+        let mut payload = [0u8; 8];
+        let tag = [0u8; 16];
+
+        let result = key.open_in_place(&[0u8; 11], b"", &mut payload, &tag);
+        assert!(result.is_err());
     }
 }

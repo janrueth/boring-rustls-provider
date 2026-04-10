@@ -46,8 +46,12 @@ impl SignatureVerificationAlgorithm for BoringEdVerifier {
                 // rfc8410#section-3: 1.3.101.113: -> DER: 06 03 2B 65 71
                 rustls_pki_types::AlgorithmIdentifier::from_slice(&[0x06, 0x03, 0x2B, 0x65, 0x71])
             }
-            _ => unimplemented!(),
+            _ => unreachable!("BoringEdVerifier only supports configured EdDSA schemes"),
         }
+    }
+
+    fn fips(&self) -> bool {
+        false
     }
 }
 
@@ -64,7 +68,7 @@ fn ed_public_key_for_scheme(
     let nid = boring::nid::Nid::from_raw(match scheme {
         SignatureScheme::ED25519 => boring_sys::EVP_PKEY_ED25519,
         SignatureScheme::ED448 => boring_sys::EVP_PKEY_ED448,
-        _ => unimplemented!(),
+        _ => return Err(ErrorStack::get()),
     });
     public_key(spki_spk, nid)
 }

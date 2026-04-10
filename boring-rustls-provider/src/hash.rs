@@ -24,8 +24,12 @@ impl hash::Hash for Hash {
             boring::nid::Nid::SHA256 => hash::HashAlgorithm::SHA256,
             boring::nid::Nid::SHA384 => hash::HashAlgorithm::SHA384,
             boring::nid::Nid::SHA512 => hash::HashAlgorithm::SHA512,
-            _ => unimplemented!(),
+            _ => unreachable!("hash::Hash is only instantiated with SHA-2 digests"),
         }
+    }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips")
     }
 
     fn output_len(&self) -> usize {

@@ -23,6 +23,7 @@ impl BoringCipher for ChaCha20Poly1305 {
 
     const INTEGRITY_LIMIT: u64 = 1 << 36;
     const CONFIDENTIALITY_LIMIT: u64 = u64::MAX;
+    const FIPS_APPROVED: bool = false;
 
     fn new_cipher() -> Algorithm {
         Algorithm::chacha20_poly1305()
@@ -37,13 +38,21 @@ impl QuicCipher for ChaCha20Poly1305 {
     const KEY_SIZE: usize = 32;
     const SAMPLE_LEN: usize = 16;
 
-    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> [u8; 5] {
-        assert!(hp_key.len() == <Self as QuicCipher>::KEY_SIZE);
-        assert!(sample.len() >= <Self as QuicCipher>::SAMPLE_LEN);
+    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> Result<[u8; 5], rustls::Error> {
+        if hp_key.len() != <Self as QuicCipher>::KEY_SIZE {
+            return Err(rustls::Error::General(
+                "header protection key of invalid length".into(),
+            ));
+        }
+        if sample.len() != <Self as QuicCipher>::SAMPLE_LEN {
+            return Err(rustls::Error::General("sample of invalid length".into()));
+        }
 
         let mut mask = [0u8; 5];
         // RFC9001 5.4.4: The first 4 bytes of the sampled ciphertext are the block counter. A ChaCha20 implementation could take a 32-bit integer in place of a byte sequence, in which case, the byte sequence is interpreted as a little-endian value.
-        let counter = u32::from_le_bytes(sample[0..4].try_into().unwrap());
+        let mut counter_bytes = [0u8; 4];
+        counter_bytes.copy_from_slice(&sample[0..4]);
+        let counter = u32::from_le_bytes(counter_bytes);
         // RFC9001 5.4.4: The remaining 12 bytes are used as the nonce.
         let nonce = &sample[4..16];
         unsafe {
@@ -56,7 +65,7 @@ impl QuicCipher for ChaCha20Poly1305 {
                 counter,
             );
         };
-        mask
+        Ok(mask)
     }
 }
 
@@ -95,7 +104,8 @@ mod tests {
         let sample = hex!("5e5cd55c41f69080575d7999c25a5bfb");
         let hp_key = hex!("25a282b9e82f06f21f488917a4fc8f1b73573685608597d0efcb076b0ab7a7a4");
         let expected_mask = hex!("aefefe7d03");
-        let mask = ChaCha20Poly1305::header_protection_mask(&hp_key, &sample);
+        let mask = ChaCha20Poly1305::header_protection_mask(&hp_key, &sample)
+            .expect("valid QUIC sample/key should produce a mask");
         assert_eq!(mask, expected_mask);
     }
 }
