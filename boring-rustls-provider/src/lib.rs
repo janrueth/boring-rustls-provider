@@ -102,20 +102,47 @@ static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
 /// Allowed KX groups for FIPS per [SP 800-52r2](https://doi.org/10.6028/NIST.SP.800-52r2),
 /// aligned with boring's `fips202205` compliance policy.
 ///
-/// See Section 3.3.1 and 3.4.2.2.
-// TODO: Add P256Kyber768Draft00 once the PQ hybrid KEM is implemented (Step 3).
+/// X25519MLKEM768 is preferred when the `mlkem` feature is enabled.
+/// The `fips` feature implies `mlkem`, so the PQ hybrid is always
+/// available in FIPS mode.
+#[cfg(feature = "mlkem")]
 #[allow(unused)]
-pub const ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
+static ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
+    &kx::X25519MlKem768 as _, // PQ hybrid preferred
+    &kx::Secp256r1 as _,      // P-256
+    &kx::Secp384r1 as _,      // P-384
+];
+
+/// See [`ALL_FIPS_KX_GROUPS`] (mlkem variant).
+#[cfg(not(feature = "mlkem"))]
+#[allow(unused)]
+static ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     &kx::Secp256r1 as _, // P-256
     &kx::Secp384r1 as _, // P-384
 ];
 
+/// All supported KX groups, ordered by preference.
+/// Matches boring's default group preference order.
+#[cfg(feature = "mlkem")]
 #[allow(unused)]
-pub const ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
+static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
+    &kx::X25519MlKem768 as _, // PQ hybrid preferred
     &kx::X25519 as _,
     &kx::X448 as _,
     &kx::Secp256r1 as _,
     &kx::Secp384r1 as _,
     &kx::Secp521r1 as _,
+    &kx::FfDHe2048 as _,
+];
+
+/// See [`ALL_KX_GROUPS`] (mlkem variant).
+#[cfg(not(feature = "mlkem"))]
+#[allow(unused)]
+static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
+    &kx::X25519 as _,
+    &kx::Secp256r1 as _,
+    &kx::Secp384r1 as _,
+    &kx::Secp521r1 as _,
+    &kx::X448 as _,
     &kx::FfDHe2048 as _,
 ];

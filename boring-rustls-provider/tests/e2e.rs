@@ -41,6 +41,159 @@ async fn test_tls13_crypto() {
     }
 }
 
+/// Self-to-self TLS 1.3 handshake using only the X25519MLKEM768 PQ hybrid group.
+#[cfg(feature = "mlkem")]
+#[tokio::test]
+async fn test_tls13_pq_x25519_mlkem768() {
+    use rustls::NamedGroup;
+
+    let pki = TestPki::new(&rcgen::PKCS_ECDSA_P256_SHA256);
+
+    let root_store = pki.client_root_store();
+
+    // Build server with only X25519MLKEM768
+    let server_provider =
+        boring_rustls_provider::provider_with_ciphers(vec![SupportedCipherSuite::Tls13(
+            &tls13::AES_256_GCM_SHA384,
+        )]);
+    let server_config = {
+        let mut cfg = ServerConfig::builder_with_provider(Arc::new(server_provider))
+            .with_protocol_versions(&[&TLS13])
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![pki.server_cert_der.clone()],
+                pki.server_key_der.clone_key(),
+            )
+            .unwrap();
+        cfg.key_log = Arc::new(rustls::KeyLogFile::new());
+        Arc::new(cfg)
+    };
+
+    // Build client with only X25519MLKEM768
+    let client_provider =
+        boring_rustls_provider::provider_with_ciphers(vec![SupportedCipherSuite::Tls13(
+            &tls13::AES_256_GCM_SHA384,
+        )]);
+    let config = ClientConfig::builder_with_provider(Arc::new(client_provider))
+        .with_protocol_versions(&[&TLS13])
+        .unwrap()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let negotiated_group = do_exchange(config, server_config).await;
+    assert_eq!(negotiated_group, Some(NamedGroup::X25519MLKEM768));
+}
+
+/// Connect to Cloudflare's PQ test endpoint and verify X25519MLKEM768
+/// was actually negotiated by checking the `/cdn-cgi/trace` response.
+/// Marked `#[ignore]` because it depends on an external service.
+#[cfg(feature = "mlkem")]
+#[ignore]
+#[tokio::test]
+async fn test_pq_interop_cloudflare() {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+    let provider = boring_rustls_provider::provider();
+    let config = ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(&[&TLS13])
+        .unwrap()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let connector = TlsConnector::from(Arc::new(config));
+    let stream = TcpStream::connect("pq.cloudflareresearch.com:443")
+        .await
+        .unwrap();
+
+    let mut stream = connector
+        .connect(
+            rustls_pki_types::ServerName::try_from("pq.cloudflareresearch.com").unwrap(),
+            stream,
+        )
+        .await
+        .expect("TLS handshake with pq.cloudflareresearch.com failed");
+
+    // Hit the trace endpoint which reports negotiated TLS parameters
+    stream
+        .write_all(
+            b"GET /cdn-cgi/trace HTTP/1.1\r\nHost: pq.cloudflareresearch.com\r\nConnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.unwrap();
+    let response = String::from_utf8_lossy(&buf);
+
+    // Verify TLS 1.3 was used
+    assert!(
+        response.contains("tls=TLSv1.3"),
+        "expected TLSv1.3, got: {response}"
+    );
+
+    // Verify X25519MLKEM768 was negotiated as the key exchange
+    assert!(
+        response.contains("kex=X25519MLKEM768"),
+        "expected kex=X25519MLKEM768, got: {response}"
+    );
+}
+
+/// Connect to Cloudflare with TLS 1.2 forced and verify that a classical
+/// key exchange is used (PQ groups are TLS 1.3 only).
+/// Marked `#[ignore]` because it depends on an external service.
+#[cfg(all(feature = "mlkem", feature = "tls12"))]
+#[ignore]
+#[tokio::test]
+async fn test_tls12_interop_cloudflare_no_pq() {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+    let provider = boring_rustls_provider::provider();
+    let config = ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(&[&TLS12])
+        .unwrap()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let connector = TlsConnector::from(Arc::new(config));
+    let stream = TcpStream::connect("pq.cloudflareresearch.com:443")
+        .await
+        .unwrap();
+
+    let mut stream = connector
+        .connect(
+            rustls_pki_types::ServerName::try_from("pq.cloudflareresearch.com").unwrap(),
+            stream,
+        )
+        .await
+        .expect("TLS handshake with pq.cloudflareresearch.com (TLS 1.2) failed");
+
+    stream
+        .write_all(
+            b"GET /cdn-cgi/trace HTTP/1.1\r\nHost: pq.cloudflareresearch.com\r\nConnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.unwrap();
+    let response = String::from_utf8_lossy(&buf);
+
+    // Verify TLS 1.2 was used
+    assert!(
+        response.contains("tls=TLSv1.2"),
+        "expected TLSv1.2, got: {response}"
+    );
+
+    // Verify a classical key exchange was used (not PQ)
+    assert!(
+        !response.contains("kex=X25519MLKEM768"),
+        "TLS 1.2 should not use PQ key exchange, got: {response}"
+    );
+}
+
 #[test]
 #[cfg(feature = "fips")]
 fn is_fips_enabled() {
@@ -80,11 +233,20 @@ fn fips_provider_restricts_kx_groups() {
         .map(|group| group.name())
         .collect::<Vec<_>>();
 
+    // fips implies mlkem, so X25519MLKEM768 must be present and preferred
+    assert_eq!(
+        groups[0],
+        NamedGroup::X25519MLKEM768,
+        "X25519MLKEM768 should be the first (preferred) FIPS KX group"
+    );
     assert!(groups.contains(&NamedGroup::secp256r1));
     assert!(groups.contains(&NamedGroup::secp384r1));
-    for group in groups {
+    for group in &groups {
         assert!(
-            matches!(group, NamedGroup::secp256r1 | NamedGroup::secp384r1),
+            matches!(
+                group,
+                NamedGroup::X25519MLKEM768 | NamedGroup::secp256r1 | NamedGroup::secp384r1
+            ),
             "FIPS provider exposed disallowed KX group: {group:?}"
         );
     }
@@ -140,6 +302,35 @@ fn non_fips_provider_keeps_non_fips_algorithms() {
         .kx_groups
         .iter()
         .any(|group| group.name() == NamedGroup::X25519));
+}
+
+#[test]
+#[cfg(all(not(feature = "fips"), feature = "mlkem"))]
+fn non_fips_provider_includes_pq_group() {
+    use rustls::NamedGroup;
+
+    let provider = boring_rustls_provider::provider();
+    let groups = provider
+        .kx_groups
+        .iter()
+        .map(|group| group.name())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        groups[0],
+        NamedGroup::X25519MLKEM768,
+        "X25519MLKEM768 should be the first (preferred) KX group"
+    );
+    assert_eq!(
+        groups[1],
+        NamedGroup::X25519,
+        "X25519 should remain the first classical fallback"
+    );
+    assert_eq!(
+        groups[2],
+        NamedGroup::X448,
+        "X448 should remain ahead of NIST P-curves in non-FIPS mode"
+    );
 }
 
 #[cfg(feature = "tls12")]
@@ -200,7 +391,10 @@ async fn new_listener() -> TcpListener {
     TcpListener::bind("localhost:0").await.unwrap()
 }
 
-async fn do_exchange(config: ClientConfig, server_config: Arc<ServerConfig>) {
+async fn do_exchange(
+    config: ClientConfig,
+    server_config: Arc<ServerConfig>,
+) -> Option<rustls::NamedGroup> {
     let listener = new_listener().await;
     let addr = listener.local_addr().unwrap();
     tokio::spawn(spawn_echo_server(listener, server_config.clone()));
@@ -216,10 +410,18 @@ async fn do_exchange(config: ClientConfig, server_config: Arc<ServerConfig>) {
         .await
         .unwrap();
 
+    let negotiated_group = stream
+        .get_ref()
+        .1
+        .negotiated_key_exchange_group()
+        .map(|group| group.name());
+
     stream.write_all(b"HELLO").await.unwrap();
     let mut buf = Vec::new();
     let bytes = stream.read_to_end(&mut buf).await.unwrap();
     assert_eq!(&buf[..bytes], b"HELLO");
+
+    negotiated_group
 }
 
 async fn spawn_echo_server(listener: TcpListener, config: Arc<ServerConfig>) {

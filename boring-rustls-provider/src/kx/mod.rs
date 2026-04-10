@@ -4,6 +4,10 @@ use crate::helper::log_and_map;
 
 mod dh;
 mod ex;
+#[cfg(feature = "mlkem")]
+mod pq;
+#[cfg(feature = "mlkem")]
+pub(crate) use pq::X25519MlKem768;
 
 enum DhKeyType {
     EC((boring::ec::EcGroup, i32)),

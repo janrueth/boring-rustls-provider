@@ -13,12 +13,18 @@ default = []
 # Build against a FIPS-validated version of BoringSSL and restrict the
 # provider to FIPS-approved algorithms only. This affects:
 #   - Cipher suites: AES-GCM only (no ChaCha20-Poly1305).
-#   - Key exchange groups: P-256 and P-384 only (no X25519, X448, P-521,
-#     or FFDHE). P256Kyber768Draft00 will be added once implemented.
+#   - Key exchange groups: X25519MLKEM768 (preferred), P-256, and P-384
+#     only (no X25519, X448, P-521, or FFDHE).
 #   - Signature algorithms: RSA PKCS#1 / PSS and ECDSA with P-256/P-384
 #     only (no P-521, Ed25519, or Ed448).
+# Implies `mlkem` to ensure the post-quantum hybrid group is available.
 # Aligned with boring's `fips202205` compliance policy (SP 800-52r2).
-fips = ["boring/fips"]
+fips = ["boring/fips", "mlkem"]
+
+# Enable X25519MLKEM768 post-quantum hybrid key exchange group
+# (draft-ietf-tls-ecdhe-mlkem-00). Uses ML-KEM-768 (FIPS 203) combined
+# with X25519 for hybrid post-quantum/classical key agreement.
+mlkem = ["boring/mlkem"]
 
 # Deprecated alias for `fips`. Matches the boring crate's feature name
 # for backwards compatibility.
@@ -43,9 +49,11 @@ log = { version = "0.4.4", optional = true }
 rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 spki = "0.7"
+zeroize = "1"
 
 [dev-dependencies]
 hex-literal = "1"
 rcgen = "0.12"
 tokio = { version = "1.34", features = ["macros", "rt", "net", "io-util", "io-std"] }
 tokio-rustls = { workspace = true }
+webpki-roots = { workspace = true }
