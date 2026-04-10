@@ -66,7 +66,7 @@ impl rustls::crypto::KeyProvider for Provider {
     }
 }
 
-#[allow(unused)]
+#[cfg(feature = "fips")]
 static ALL_FIPS_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
     SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
@@ -80,7 +80,7 @@ static ALL_FIPS_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
 ];
 
-#[allow(unused)]
+#[cfg(not(feature = "fips"))]
 static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     SupportedCipherSuite::Tls13(&tls13::CHACHA20_POLY1305_SHA256),
     SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
@@ -102,47 +102,28 @@ static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
 /// Allowed KX groups for FIPS per [SP 800-52r2](https://doi.org/10.6028/NIST.SP.800-52r2),
 /// aligned with boring's `fips202205` compliance policy.
 ///
-/// X25519MLKEM768 is preferred when the `mlkem` feature is enabled.
-/// The `fips` feature implies `mlkem`, so the PQ hybrid is always
-/// available in FIPS mode.
-#[cfg(feature = "mlkem")]
-#[allow(unused)]
+/// The `fips` feature implies `mlkem`, so X25519MLKEM768 is always
+/// available and preferred in FIPS mode.
+#[cfg(feature = "fips")]
 static ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     &kx::X25519MlKem768 as _, // PQ hybrid preferred
     &kx::Secp256r1 as _,      // P-256
     &kx::Secp384r1 as _,      // P-384
 ];
 
-/// See [`ALL_FIPS_KX_GROUPS`] (mlkem variant).
-#[cfg(not(feature = "mlkem"))]
-#[allow(unused)]
-static ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
-    &kx::Secp256r1 as _, // P-256
-    &kx::Secp384r1 as _, // P-384
-];
-
 /// All supported KX groups, ordered by preference.
-/// Matches boring's default group preference order.
-#[cfg(feature = "mlkem")]
-#[allow(unused)]
+///
+/// Matches boring's default supported group list exactly:
+/// X25519MLKEM768 (when mlkem enabled), X25519, P-256, P-384.
+#[cfg(all(not(feature = "fips"), feature = "mlkem"))]
 static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     &kx::X25519MlKem768 as _, // PQ hybrid preferred
     &kx::X25519 as _,
-    &kx::X448 as _,
     &kx::Secp256r1 as _,
     &kx::Secp384r1 as _,
-    &kx::Secp521r1 as _,
-    &kx::FfDHe2048 as _,
 ];
 
 /// See [`ALL_KX_GROUPS`] (mlkem variant).
-#[cfg(not(feature = "mlkem"))]
-#[allow(unused)]
-static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
-    &kx::X25519 as _,
-    &kx::Secp256r1 as _,
-    &kx::Secp384r1 as _,
-    &kx::Secp521r1 as _,
-    &kx::X448 as _,
-    &kx::FfDHe2048 as _,
-];
+#[cfg(not(any(feature = "fips", feature = "mlkem")))]
+static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] =
+    &[&kx::X25519 as _, &kx::Secp256r1 as _, &kx::Secp384r1 as _];
