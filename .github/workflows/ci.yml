@@ -9,10 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
-  FEATURES: "logging,tls12"
 
 jobs:
-  build:
+  fmt:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,9 +20,57 @@ jobs:
       run: sudo apt-get install -y cmake clang
     - name: Check fmt
       run: make fmt
-    - name: Lint
-      run: make lint
-    - name: Tests usual
-      run: make test
-    - name: Build usual
-      run: make build
+
+  test-default:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Lint (default features)
+      run: make lint FEATURES=""
+    - name: Test (default features)
+      run: make test FEATURES=""
+    - name: Build (default features)
+      run: make build FEATURES=""
+
+  test-tls12:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Lint (tls12)
+      run: make lint FEATURES="tls12"
+    - name: Test (tls12)
+      run: make test FEATURES="tls12"
+    - name: Build (tls12)
+      run: make build FEATURES="tls12"
+
+  test-logging-tls12:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Lint (logging,tls12)
+      run: make lint FEATURES="logging,tls12"
+    - name: Test (logging,tls12)
+      run: make test FEATURES="logging,tls12"
+    - name: Build (logging,tls12)
+      run: make build FEATURES="logging,tls12"
+
+  check-fips:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Check (fips)
+      run: cargo check -p boring-rustls-provider --all-targets --features fips
+    - name: Check (fips-precompiled)
+      run: cargo check -p boring-rustls-provider --all-targets --features fips-precompiled

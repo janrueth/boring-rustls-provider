@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 use aead::{AeadCore, AeadInPlace, Buffer, Nonce, Tag};
 use boring::error::ErrorStack;
 use boring_additions::aead::Algorithm;
-use rustls::crypto::cipher::{
-    self, make_tls12_aad, make_tls13_aad, BorrowedPayload, Iv, PrefixedPayload,
-};
+#[cfg(feature = "tls12")]
+use rustls::crypto::cipher::make_tls12_aad;
+use rustls::crypto::cipher::{self, make_tls13_aad, BorrowedPayload, Iv, PrefixedPayload};
 use rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
 
 use crate::helper::log_and_map;
@@ -20,6 +20,8 @@ pub(crate) trait BoringCipher {
     /// The IV's fixed length (Not the full IV length, only the part that doesn't change).
     /// Together with [`BoringCipher::explicit_nonce_len`] it determines the total
     /// lengths of the used nonce.
+    /// Used only by TLS 1.2 code paths.
+    #[cfg(feature = "tls12")]
     const FIXED_IV_LEN: usize;
     /// The key size in bytes
     const KEY_SIZE: usize;
@@ -569,7 +571,8 @@ impl Buffer for EncryptBufferAdapter<'_> {
 #[cfg(test)]
 mod tests {
     use hex_literal::hex;
-    use rustls::crypto::cipher::{AeadKey, Iv};
+    use rustls::crypto::cipher::AeadKey;
+    use rustls::crypto::cipher::Iv;
 
     use crate::aead::BoringAeadCrypter;
     use rustls::quic::PacketKey;
@@ -611,7 +614,7 @@ mod tests {
         let unprotected_header = hex!("4200bff4");
 
         let protector = BoringAeadCrypter::<ChaCha20Poly1305>::new(
-            Iv::new(iv),
+            Iv::from(iv),
             &key,
             rustls::ProtocolVersion::TLSv1_3,
         )

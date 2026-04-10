@@ -11,6 +11,7 @@ impl BoringAead for Aes128 {}
 impl BoringCipher for Aes128 {
     const EXPLICIT_NONCE_LEN: usize = 8;
 
+    #[cfg(feature = "tls12")]
     const FIXED_IV_LEN: usize = 4;
 
     const KEY_SIZE: usize = 16;
@@ -55,6 +56,7 @@ impl BoringAead for Aes256 {}
 impl BoringCipher for Aes256 {
     const EXPLICIT_NONCE_LEN: usize = 8;
 
+    #[cfg(feature = "tls12")]
     const FIXED_IV_LEN: usize = 4;
 
     const KEY_SIZE: usize = 32;

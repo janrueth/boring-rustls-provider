@@ -1,4 +1,5 @@
 FEATURES ?= logging,tls12
+CARGO_FEATURES := $(if $(strip $(FEATURES)),-F "$(FEATURES)",)
 
 
 .PHONY: fmt
@@ -7,12 +8,16 @@ fmt:
 
 .PHONY: lint
 lint:
-	cargo clippy --workspace --all-targets -F "$(FEATURES)"
+	cargo clippy --workspace --all-targets $(CARGO_FEATURES)
+
+.PHONY: check
+check:
+	cargo check --workspace --all-targets $(CARGO_FEATURES)
 
 .PHONY: test
 test:
-	cargo test --all-targets -F "$(FEATURES)"
+	cargo test --all-targets $(CARGO_FEATURES)
 
 .PHONY: build
 build:
-	cargo build --all-targets -F "$(FEATURES)"
+	cargo build --all-targets $(CARGO_FEATURES)
