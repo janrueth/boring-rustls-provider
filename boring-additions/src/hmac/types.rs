@@ -5,8 +5,6 @@ use std::{
 
 use foreign_types::{ForeignType, ForeignTypeRef, Opaque};
 
-use crate::helper::{cvt, cvt_p};
-
 pub struct HmacCtxRef(Opaque);
 
 unsafe impl ForeignTypeRef for HmacCtxRef {
@@ -32,20 +30,6 @@ unsafe impl ForeignType for HmacCtx {
 
     fn as_ptr(&self) -> *mut Self::CType {
         self.0.as_ptr()
-    }
-}
-
-impl Clone for HmacCtx {
-    fn clone(&self) -> Self {
-        unsafe {
-            cvt_p(boring_sys::HMAC_CTX_new())
-                .map(|ctx| HmacCtx::from_ptr(ctx))
-                .and_then(|ctx| {
-                    cvt(boring_sys::HMAC_CTX_copy(ctx.as_ptr(), self.0.as_ptr()))?;
-                    Ok(ctx)
-                })
-        }
-        .expect("failed cloning hmac ctx")
     }
 }
 

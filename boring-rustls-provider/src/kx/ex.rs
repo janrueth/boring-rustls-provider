@@ -5,6 +5,7 @@ use boring::{
     ec::{EcGroup, EcKey},
     error::ErrorStack,
     nid::Nid,
+    pkey::Id,
     pkey::{PKey, PKeyRef, Private},
 };
 #[cfg(not(feature = "fips"))]
@@ -12,7 +13,6 @@ use boring_additions::evp::EvpPkeyCtx;
 #[cfg(not(feature = "fips"))]
 use foreign_types::ForeignType;
 use rustls::crypto;
-use spki::der::Decode;
 
 use crate::helper::log_and_map;
 #[cfg(not(feature = "fips"))]
@@ -97,18 +97,24 @@ impl KeyExchange {
 
     /// Decodes a SPKI public key to it's raw public key component
     fn raw_public_key(pkey: &PKeyRef<Private>) -> Result<Vec<u8>, ErrorStack> {
-        let spki = pkey.public_key_to_der()?;
+        if pkey.id() == Id::EC {
+            let ec_key = pkey.ec_key()?;
+            let mut bn_ctx = boring::bn::BigNumContext::new()?;
 
-        // parse the key
-        let pkey = spki::SubjectPublicKeyInfoRef::from_der(spki.as_ref())
-            .expect("failed parsing spki bytes");
+            return ec_key.public_key().to_bytes(
+                ec_key.group(),
+                boring::ec::PointConversionForm::UNCOMPRESSED,
+                &mut bn_ctx,
+            );
+        }
 
-        // return the raw public key as a new vec
-        Ok(Vec::from(
-            pkey.subject_public_key
-                .as_bytes()
-                .expect("failed getting raw spki bytes"),
-        ))
+        let mut output = vec![0u8; pkey.raw_public_key_len()?];
+        let used_len = {
+            let used = pkey.raw_public_key(&mut output)?;
+            used.len()
+        };
+        output.truncate(used_len);
+        Ok(output)
     }
 
     /// Derives a shared secret using the peer's raw public key

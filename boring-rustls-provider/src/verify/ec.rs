@@ -40,7 +40,7 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
                 ec_verifier_from_params(public_key.as_ref(), MessageDigest::sha512())
             }
 
-            _ => unimplemented!(),
+            _ => return Err(InvalidSignature),
         }
         .map_err(|e| helper::log_and_map("ec_verifier_from_params", e, InvalidSignature))?;
 
@@ -61,7 +61,7 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
                     0x04, 0x00, 0x23,
                 ])
             }
-            _ => unimplemented!(),
+            _ => unreachable!("BoringEcVerifier only supports configured ECDSA schemes"),
         }
     }
 
@@ -75,8 +75,12 @@ impl SignatureVerificationAlgorithm for BoringEcVerifier {
                     0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x04,
                 ])
             }
-            _ => unimplemented!(),
+            _ => unreachable!("BoringEcVerifier only supports configured ECDSA schemes"),
         }
+    }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips") && !matches!(self.0, SignatureScheme::ECDSA_NISTP521_SHA512)
     }
 }
 
@@ -92,7 +96,7 @@ fn group_for_scheme(scheme: SignatureScheme) -> Result<boring::ec::EcGroup, Erro
         SignatureScheme::ECDSA_NISTP256_SHA256 => boring::nid::Nid::X9_62_PRIME256V1,
         SignatureScheme::ECDSA_NISTP384_SHA384 => boring::nid::Nid::SECP384R1,
         SignatureScheme::ECDSA_NISTP521_SHA512 => boring::nid::Nid::SECP521R1,
-        _ => unimplemented!(),
+        _ => unreachable!("BoringEcVerifier only supports configured ECDSA schemes"),
     };
     boring::ec::EcGroup::from_curve_name(nid)
 }

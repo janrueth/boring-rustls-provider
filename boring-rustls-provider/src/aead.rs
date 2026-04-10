@@ -35,6 +35,9 @@ pub(crate) trait BoringCipher {
     /// confidentiality limit
     const CONFIDENTIALITY_LIMIT: u64;
 
+    /// Whether this algorithm is FIPS-approved.
+    const FIPS_APPROVED: bool;
+
     /// Constructs a new instance of this cipher as an AEAD algorithm
     fn new_cipher() -> Algorithm;
 
@@ -49,7 +52,7 @@ pub(crate) trait QuicCipher: Send + Sync {
     /// the expected length of a sample
     const SAMPLE_LEN: usize;
 
-    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> [u8; 5];
+    fn header_protection_mask(hp_key: &[u8], sample: &[u8]) -> Result<[u8; 5], rustls::Error>;
 }
 
 pub(crate) trait BoringAead: BoringCipher + AeadCore + Send + Sync {}
@@ -74,19 +77,21 @@ impl<T: BoringAead> AeadCore for BoringAeadCrypter<T> {
 impl<T: BoringAead> BoringAeadCrypter<T> {
     /// Creates a new aead crypter
     pub fn new(iv: Iv, key: &[u8], tls_version: ProtocolVersion) -> Result<Self, ErrorStack> {
-        assert!(match tls_version {
+        let tls_version_supported = match tls_version {
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => true,
             ProtocolVersion::TLSv1_3 => true,
             _ => false,
-        });
+        };
+        if !tls_version_supported {
+            return Err(ErrorStack::get());
+        }
 
         let cipher = <T as BoringCipher>::new_cipher();
 
-        assert_eq!(
-            cipher.nonce_len(),
-            rustls::crypto::cipher::Nonce::new(&iv, 0).0.len()
-        );
+        if cipher.nonce_len() != rustls::crypto::cipher::Nonce::new(&iv, 0).0.len() {
+            return Err(ErrorStack::get());
+        }
 
         let crypter = BoringAeadCrypter {
             crypter: boring_additions::aead::Crypter::new(&cipher, key)?,
@@ -181,18 +186,21 @@ where
                     )
                 })
             }
-            _ => unimplemented!(),
+            _ => Err(rustls::Error::EncryptError),
         }
     }
 
     fn encrypted_payload_len(&self, payload_len: usize) -> usize {
-        match self.tls_version {
-            ProtocolVersion::TLSv1_2 => {
-                payload_len + self.crypter.max_overhead() + <T as BoringCipher>::EXPLICIT_NONCE_LEN
-            }
-            ProtocolVersion::TLSv1_3 => payload_len + 1 + self.crypter.max_overhead(),
-            _ => unimplemented!(),
-        }
+        let per_record_overhead = match self.tls_version {
+            ProtocolVersion::TLSv1_2 => self
+                .crypter
+                .max_overhead()
+                .saturating_add(<T as BoringCipher>::EXPLICIT_NONCE_LEN),
+            ProtocolVersion::TLSv1_3 => 1usize.saturating_add(self.crypter.max_overhead()),
+            _ => return payload_len,
+        };
+
+        payload_len.saturating_add(per_record_overhead)
     }
 }
 
@@ -209,10 +217,17 @@ where
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => {
                 let explicit_nonce_len = <T as BoringCipher>::EXPLICIT_NONCE_LEN;
+                let tag_len = self.crypter.max_overhead();
+                let min_payload_len = explicit_nonce_len
+                    .checked_add(tag_len)
+                    .ok_or(rustls::Error::DecryptError)?;
+
+                if m.payload.len() < min_payload_len {
+                    return Err(rustls::Error::DecryptError);
+                }
 
                 // payload is: [nonce] | [ciphertext] | [auth tag]
-                let actual_payload_length =
-                    m.payload.len() - self.crypter.max_overhead() - explicit_nonce_len;
+                let actual_payload_length = m.payload.len() - tag_len - explicit_nonce_len;
 
                 let aad = make_tls12_aad(seq, m.typ, m.version, actual_payload_length);
 
@@ -224,7 +239,9 @@ where
                 let nonce = {
                     let fixed_iv_len = <T as BoringCipher>::FIXED_IV_LEN;
 
-                    assert_eq!(explicit_nonce_len + fixed_iv_len, 12);
+                    if explicit_nonce_len + fixed_iv_len != 12 {
+                        return Err(rustls::Error::DecryptError);
+                    }
 
                     // grab the IV by constructing a nonce, this is just an xor
                     let iv = cipher::Nonce::new(&self.iv, seq).0;
@@ -235,8 +252,7 @@ where
                 };
 
                 // split off the authentication tag
-                let (payload, tag) =
-                    payload.split_at_mut(payload.len() - self.crypter.max_overhead());
+                let (payload, tag) = payload.split_at_mut(payload.len() - tag_len);
 
                 self.crypter
                     .open_in_place(&nonce, &aad, payload, tag)
@@ -262,7 +278,7 @@ where
                 .map_err(|_| rustls::Error::DecryptError)
                 .and_then(|_| m.into_tls13_unpadded_message())
             }
-            _ => unimplemented!(),
+            _ => Err(rustls::Error::DecryptError),
         }
     }
 }
@@ -295,6 +311,10 @@ where
         let associated_data = header;
         let nonce = cipher::Nonce::new(&self.iv, packet_number);
 
+        if payload.len() < self.crypter.max_overhead() {
+            return Err(rustls::Error::DecryptError);
+        }
+
         let (buffer, tag) = payload.split_at_mut(payload.len() - self.crypter.max_overhead());
 
         self.crypter
@@ -317,6 +337,68 @@ where
     }
 }
 
+struct InvalidMessageEncrypter;
+
+impl cipher::MessageEncrypter for InvalidMessageEncrypter {
+    fn encrypt(
+        &mut self,
+        _msg: cipher::OutboundPlainMessage<'_>,
+        _seq: u64,
+    ) -> Result<cipher::OutboundOpaqueMessage, rustls::Error> {
+        Err(rustls::Error::EncryptError)
+    }
+
+    fn encrypted_payload_len(&self, payload_len: usize) -> usize {
+        payload_len
+    }
+}
+
+struct InvalidMessageDecrypter;
+
+impl cipher::MessageDecrypter for InvalidMessageDecrypter {
+    fn decrypt<'a>(
+        &mut self,
+        _msg: cipher::InboundOpaqueMessage<'a>,
+        _seq: u64,
+    ) -> Result<cipher::InboundPlainMessage<'a>, rustls::Error> {
+        Err(rustls::Error::DecryptError)
+    }
+}
+
+struct InvalidPacketKey<T>(PhantomData<T>);
+
+impl<T: BoringCipher + QuicCipher> rustls::quic::PacketKey for InvalidPacketKey<T> {
+    fn encrypt_in_place(
+        &self,
+        _packet_number: u64,
+        _header: &[u8],
+        _payload: &mut [u8],
+    ) -> Result<rustls::quic::Tag, rustls::Error> {
+        Err(rustls::Error::EncryptError)
+    }
+
+    fn decrypt_in_place<'a>(
+        &self,
+        _packet_number: u64,
+        _header: &[u8],
+        _payload: &'a mut [u8],
+    ) -> Result<&'a [u8], rustls::Error> {
+        Err(rustls::Error::DecryptError)
+    }
+
+    fn tag_len(&self) -> usize {
+        <T as BoringCipher>::TAG_LEN
+    }
+
+    fn confidentiality_limit(&self) -> u64 {
+        0
+    }
+
+    fn integrity_limit(&self) -> u64 {
+        0
+    }
+}
+
 pub(crate) struct Aead<T>(PhantomData<T>);
 
 impl<T> Aead<T> {
@@ -325,17 +407,31 @@ impl<T> Aead<T> {
 
 impl<T: BoringAead + 'static> cipher::Tls13AeadAlgorithm for Aead<T> {
     fn encrypter(&self, key: cipher::AeadKey, iv: cipher::Iv) -> Box<dyn cipher::MessageEncrypter> {
-        Box::new(
-            BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3)
-                .expect("failed to create AEAD crypter"),
-        )
+        match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3) {
+            Ok(crypter) => Box::new(crypter),
+            Err(err) => {
+                log_and_map(
+                    "Tls13AeadAlgorithm::encrypter BoringAeadCrypter::new",
+                    err,
+                    (),
+                );
+                Box::new(InvalidMessageEncrypter)
+            }
+        }
     }
 
     fn decrypter(&self, key: cipher::AeadKey, iv: cipher::Iv) -> Box<dyn cipher::MessageDecrypter> {
-        Box::new(
-            BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3)
-                .expect("failed to create AEAD crypter"),
-        )
+        match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3) {
+            Ok(crypter) => Box::new(crypter),
+            Err(err) => {
+                log_and_map(
+                    "Tls13AeadAlgorithm::decrypter BoringAeadCrypter::new",
+                    err,
+                    (),
+                );
+                Box::new(InvalidMessageDecrypter)
+            }
+        }
     }
 
     fn key_len(&self) -> usize {
@@ -348,6 +444,10 @@ impl<T: BoringAead + 'static> cipher::Tls13AeadAlgorithm for Aead<T> {
         iv: cipher::Iv,
     ) -> Result<ConnectionTrafficSecrets, cipher::UnsupportedOperationError> {
         Ok(<T as BoringCipher>::extract_keys(key, iv))
+    }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED
     }
 }
 
@@ -362,24 +462,42 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
         let mut full_iv = Vec::with_capacity(iv.len() + extra.len());
         full_iv.extend_from_slice(iv);
         full_iv.extend_from_slice(extra);
-        Box::new(
-            BoringAeadCrypter::<T>::new(Iv::copy(&full_iv), key.as_ref(), ProtocolVersion::TLSv1_2)
-                .expect("failed to create AEAD crypter"),
-        )
+        match BoringAeadCrypter::<T>::new(
+            Iv::copy(&full_iv),
+            key.as_ref(),
+            ProtocolVersion::TLSv1_2,
+        ) {
+            Ok(crypter) => Box::new(crypter),
+            Err(err) => {
+                log_and_map(
+                    "Tls12AeadAlgorithm::encrypter BoringAeadCrypter::new",
+                    err,
+                    (),
+                );
+                Box::new(InvalidMessageEncrypter)
+            }
+        }
     }
 
     fn decrypter(&self, key: cipher::AeadKey, iv: &[u8]) -> Box<dyn cipher::MessageDecrypter> {
         let mut pseudo_iv = Vec::with_capacity(iv.len() + <T as BoringCipher>::EXPLICIT_NONCE_LEN);
         pseudo_iv.extend_from_slice(iv);
         pseudo_iv.extend_from_slice(&vec![0u8; <T as BoringCipher>::EXPLICIT_NONCE_LEN]);
-        Box::new(
-            BoringAeadCrypter::<T>::new(
-                Iv::copy(&pseudo_iv),
-                key.as_ref(),
-                ProtocolVersion::TLSv1_2,
-            )
-            .expect("failed to create AEAD crypter"),
-        )
+        match BoringAeadCrypter::<T>::new(
+            Iv::copy(&pseudo_iv),
+            key.as_ref(),
+            ProtocolVersion::TLSv1_2,
+        ) {
+            Ok(crypter) => Box::new(crypter),
+            Err(err) => {
+                log_and_map(
+                    "Tls12AeadAlgorithm::decrypter BoringAeadCrypter::new",
+                    err,
+                    (),
+                );
+                Box::new(InvalidMessageDecrypter)
+            }
+        }
     }
 
     fn key_block_shape(&self) -> cipher::KeyBlockShape {
@@ -399,7 +517,13 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
         let nonce = {
             let fixed_iv_len = <T as BoringCipher>::FIXED_IV_LEN;
             let explicit_nonce_len = <T as BoringCipher>::EXPLICIT_NONCE_LEN;
-            assert_eq!(explicit_nonce_len + fixed_iv_len, 12);
+            if explicit_nonce_len + fixed_iv_len != 12 {
+                return Err(cipher::UnsupportedOperationError);
+            }
+
+            if iv.len() != fixed_iv_len || explicit.len() != explicit_nonce_len {
+                return Err(cipher::UnsupportedOperationError);
+            }
 
             // grab the IV by constructing a nonce, this is just an xor
 
@@ -409,6 +533,10 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
             nonce
         };
         Ok(<T as BoringCipher>::extract_keys(key, Iv::copy(&nonce)))
+    }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED
     }
 }
 
@@ -425,8 +553,8 @@ impl<T: QuicCipher> QuicHeaderProtector<T> {
         first: &mut u8,
         packet_number: &mut [u8],
         remove: bool,
-    ) {
-        let mask = T::header_protection_mask(self.key.as_ref(), sample);
+    ) -> Result<(), rustls::Error> {
+        let mask = T::header_protection_mask(self.key.as_ref(), sample)?;
 
         const LONG_HEADER_FORMAT: u8 = 0x80;
         let bits_to_mask = if (*first & LONG_HEADER_FORMAT) == LONG_HEADER_FORMAT {
@@ -453,6 +581,8 @@ impl<T: QuicCipher> QuicHeaderProtector<T> {
         for (pn_byte, m) in packet_number.iter_mut().zip(&mask[1..]).take(pn_length) {
             *pn_byte ^= m;
         }
+
+        Ok(())
     }
 }
 
@@ -468,7 +598,7 @@ impl<T: QuicCipher> rustls::quic::HeaderProtectionKey for QuicHeaderProtector<T>
             return Err(rustls::Error::General("packet number too long".into()));
         }
 
-        self.rfc9001_header_protection(sample, first, packet_number, false);
+        self.rfc9001_header_protection(sample, first, packet_number, false)?;
 
         Ok(())
     }
@@ -483,7 +613,7 @@ impl<T: QuicCipher> rustls::quic::HeaderProtectionKey for QuicHeaderProtector<T>
             return Err(rustls::Error::General("packet number too long".into()));
         }
 
-        self.rfc9001_header_protection(sample, first, packet_number, true);
+        self.rfc9001_header_protection(sample, first, packet_number, true)?;
 
         Ok(())
     }
@@ -498,10 +628,13 @@ where
     T: QuicCipher + BoringAead + 'static,
 {
     fn packet_key(&self, key: cipher::AeadKey, iv: Iv) -> Box<dyn rustls::quic::PacketKey> {
-        Box::new(
-            BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3)
-                .expect("failed to create AEAD crypter"),
-        )
+        match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3) {
+            Ok(crypter) => Box::new(crypter),
+            Err(err) => {
+                log_and_map("QuicAlgorithm::packet_key BoringAeadCrypter::new", err, ());
+                Box::new(InvalidPacketKey::<T>(PhantomData))
+            }
+        }
     }
 
     fn header_protection_key(
@@ -516,6 +649,10 @@ where
 
     fn aead_key_len(&self) -> usize {
         <T as QuicCipher>::KEY_SIZE
+    }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED
     }
 }
 
@@ -535,7 +672,7 @@ impl AsMut<[u8]> for DecryptBufferAdapter<'_, '_> {
 
 impl Buffer for DecryptBufferAdapter<'_, '_> {
     fn extend_from_slice(&mut self, _: &[u8]) -> aead::Result<()> {
-        unreachable!("not used by `AeadInPlace::decrypt_in_place`")
+        Err(aead::Error)
     }
 
     fn truncate(&mut self, len: usize) {
@@ -571,13 +708,20 @@ impl Buffer for EncryptBufferAdapter<'_> {
 #[cfg(test)]
 mod tests {
     use hex_literal::hex;
-    use rustls::crypto::cipher::AeadKey;
-    use rustls::crypto::cipher::Iv;
+    use rustls::crypto::cipher::Tls13AeadAlgorithm;
+    use rustls::crypto::cipher::{AeadKey, InboundOpaqueMessage, Iv};
+    #[cfg(feature = "tls12")]
+    use rustls::crypto::cipher::{MessageDecrypter, Tls12AeadAlgorithm};
+    use rustls::quic::Algorithm as QuicAlgorithm;
+    use rustls::quic::HeaderProtectionKey;
+    use rustls::ContentType;
+    use rustls::ProtocolVersion;
 
     use crate::aead::BoringAeadCrypter;
     use rustls::quic::PacketKey;
 
-    use super::{chacha20::ChaCha20Poly1305, QuicHeaderProtector};
+    use super::aes::Aes128;
+    use super::{chacha20::ChaCha20Poly1305, BoringCipher, QuicHeaderProtector};
 
     #[test]
     fn quic_header_protection_short() {
@@ -594,12 +738,95 @@ mod tests {
             phantom: std::marker::PhantomData::<ChaCha20Poly1305>,
         };
 
-        protector.rfc9001_header_protection(&sample, &mut first[0], packet_number, false);
+        protector
+            .rfc9001_header_protection(&sample, &mut first[0], packet_number, false)
+            .expect("valid sample should protect QUIC header");
         assert_eq!(&header[..], &protected_header[..]);
 
         let (first, packet_number) = header.split_at_mut(1);
-        protector.rfc9001_header_protection(&sample, &mut first[0], packet_number, true);
+        protector
+            .rfc9001_header_protection(&sample, &mut first[0], packet_number, true)
+            .expect("valid sample should unprotect QUIC header");
         assert_eq!(&header[..], &unprotected_header[..]);
+    }
+
+    #[test]
+    fn quic_header_protection_rejects_invalid_sample_without_mutation() {
+        let hp_key = hex!("25a282b9e82f06f21f488917a4fc8f1b73573685608597d0efcb076b0ab7a7a4");
+        let sample = hex!("5e5cd55c41f69080575d7999c25a5bfb");
+        let mut header = hex!("4200bff4");
+        let original = header;
+        let (first, packet_number) = header.split_at_mut(1);
+
+        let protector = QuicHeaderProtector {
+            key: AeadKey::from(hp_key),
+            phantom: std::marker::PhantomData::<ChaCha20Poly1305>,
+        };
+
+        let err = protector
+            .encrypt_in_place(&sample[..sample.len() - 1], &mut first[0], packet_number)
+            .expect_err("short sample must be rejected");
+
+        assert!(matches!(err, rustls::Error::General(_)));
+        assert_eq!(header, original);
+    }
+
+    #[test]
+    fn tls13_decrypter_constructor_failure_returns_erroring_decrypter() {
+        let mut decrypter = Tls13AeadAlgorithm::decrypter(
+            &super::Aead::<Aes128>::DEFAULT,
+            AeadKey::from([0u8; 32]),
+            Iv::from([0u8; 12]),
+        );
+        let mut payload = vec![0u8; 8];
+        let msg = InboundOpaqueMessage::new(
+            ContentType::ApplicationData,
+            ProtocolVersion::TLSv1_3,
+            &mut payload,
+        );
+
+        let err = decrypter
+            .decrypt(msg, 0)
+            .expect_err("invalid constructor inputs should produce decrypt errors");
+
+        assert!(matches!(err, rustls::Error::DecryptError));
+    }
+
+    #[test]
+    fn quic_packet_key_constructor_failure_returns_erroring_key() {
+        let packet_key = super::Aead::<Aes128>::DEFAULT
+            .packet_key(AeadKey::from([0u8; 32]), Iv::from([0u8; 12]));
+        let mut payload = [0u8; 0];
+
+        let enc_err = packet_key.encrypt_in_place(0, &[], &mut payload);
+        assert!(matches!(enc_err, Err(rustls::Error::EncryptError)));
+
+        let dec_err = packet_key
+            .decrypt_in_place(0, &[], &mut payload)
+            .expect_err("invalid constructor inputs should produce decrypt errors");
+        assert!(matches!(dec_err, rustls::Error::DecryptError));
+    }
+
+    #[cfg(feature = "tls12")]
+    #[test]
+    fn tls12_decrypter_constructor_failure_returns_erroring_decrypter() {
+        let mut decrypter = Tls12AeadAlgorithm::decrypter(
+            &super::Aead::<Aes128>::DEFAULT,
+            AeadKey::from([0u8; 32]),
+            &[0u8; 4],
+        );
+        let mut payload = vec![0u8; 8];
+        let msg = InboundOpaqueMessage::new(
+            ContentType::ApplicationData,
+            ProtocolVersion::TLSv1_2,
+            &mut payload,
+        );
+
+        let err = decrypter
+            .decrypt(msg, 0)
+            .expect_err("invalid constructor inputs should produce decrypt errors");
+
+        assert!(matches!(err, rustls::Error::DecryptError));
     }
 
     #[test]
@@ -616,7 +843,7 @@ mod tests {
         let protector = BoringAeadCrypter::<ChaCha20Poly1305>::new(
             Iv::from(iv),
             &key,
-            rustls::ProtocolVersion::TLSv1_3,
+            ProtocolVersion::TLSv1_3,
         )
         .unwrap();
 
@@ -634,5 +861,48 @@ mod tests {
             .unwrap();
 
         assert_eq!(cleartext, expected_cleartext);
+    }
+
+    #[test]
+    fn quic_decrypt_rejects_truncated_payload() {
+        let key = [0u8; <ChaCha20Poly1305 as BoringCipher>::KEY_SIZE];
+        let iv = [0u8; 12];
+        let crypter = BoringAeadCrypter::<ChaCha20Poly1305>::new(
+            Iv::from(iv),
+            &key,
+            ProtocolVersion::TLSv1_3,
+        )
+        .unwrap();
+
+        let mut payload = [0u8; <ChaCha20Poly1305 as BoringCipher>::TAG_LEN - 1];
+        let err = crypter
+            .decrypt_in_place(0, &[], &mut payload)
+            .expect_err("truncated QUIC payload must fail decryption");
+
+        assert!(matches!(err, rustls::Error::DecryptError));
+    }
+
+    #[cfg(feature = "tls12")]
+    #[test]
+    fn tls12_decrypt_rejects_truncated_payload() {
+        let key = [0u8; <Aes128 as BoringCipher>::KEY_SIZE];
+        let iv = [0u8; 12];
+        let mut decrypter =
+            BoringAeadCrypter::<Aes128>::new(Iv::from(iv), &key, ProtocolVersion::TLSv1_2).unwrap();
+
+        let min_payload_len =
+            <Aes128 as BoringCipher>::EXPLICIT_NONCE_LEN + <Aes128 as BoringCipher>::TAG_LEN;
+        let mut payload = vec![0u8; min_payload_len - 1];
+        let msg = InboundOpaqueMessage::new(
+            ContentType::ApplicationData,
+            ProtocolVersion::TLSv1_2,
+            &mut payload,
+        );
+
+        let err = decrypter
+            .decrypt(msg, 0)
+            .expect_err("truncated TLS1.2 payload must fail decryption");
+
+        assert!(matches!(err, rustls::Error::DecryptError));
     }
 }

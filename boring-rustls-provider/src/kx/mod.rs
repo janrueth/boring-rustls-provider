@@ -32,6 +32,10 @@ impl crypto::SupportedKxGroup for X25519 {
     fn name(&self) -> rustls::NamedGroup {
         rustls::NamedGroup::X25519
     }
+
+    fn fips(&self) -> bool {
+        false
+    }
 }
 
 /// A secp256r1-based key exchange
@@ -48,6 +52,10 @@ impl crypto::SupportedKxGroup for Secp256r1 {
     fn name(&self) -> rustls::NamedGroup {
         rustls::NamedGroup::secp256r1
     }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips")
+    }
 }
 
 /// A secp384r1-based key exchange
@@ -63,5 +71,9 @@ impl crypto::SupportedKxGroup for Secp384r1 {
 
     fn name(&self) -> rustls::NamedGroup {
         rustls::NamedGroup::secp384r1
+    }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips")
     }
 }

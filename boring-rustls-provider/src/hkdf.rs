@@ -138,6 +138,10 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         }
         rustls::crypto::hmac::Tag::new(&hash[..hash_len as usize])
     }
+
+    fn fips(&self) -> bool {
+        cfg!(feature = "fips")
+    }
 }
 
 struct HkdfExpander {
@@ -163,9 +167,17 @@ impl tls13::HkdfExpander for HkdfExpander {
         info: &[&[u8]],
         output: &mut [u8],
     ) -> Result<(), tls13::OutputLengthError> {
+        let max_output_len = self
+            .hash_len()
+            .checked_mul(255)
+            .ok_or(tls13::OutputLengthError)?;
+        if output.len() > max_output_len {
+            return Err(tls13::OutputLengthError);
+        }
+
         let info_concat = info.concat();
         unsafe {
-            boring_sys::HKDF_expand(
+            cvt(boring_sys::HKDF_expand(
                 output.as_mut_ptr(),
                 output.len(),
                 self.digest.as_ptr(),
@@ -173,8 +185,9 @@ impl tls13::HkdfExpander for HkdfExpander {
                 self.prk_len,
                 info_concat.as_ptr(),
                 info_concat.len(),
-            );
-        };
+            ))
+            .map_err(|_| tls13::OutputLengthError)?;
+        }
         Ok(())
     }
 
@@ -199,5 +212,37 @@ impl tls13::HkdfExpander for HkdfExpander {
 
     fn hash_len(&self) -> usize {
         self.digest.size()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use boring::hash::MessageDigest;
+    use rustls::crypto::tls13::Hkdf as _;
+
+    use super::{Hkdf, Sha256};
+
+    #[test]
+    fn expand_slice_rejects_output_larger_than_rfc_limit() {
+        let hkdf = Hkdf::<Sha256>::DEFAULT;
+        let expander = hkdf.extract_from_secret(None, b"ikm");
+        let hash_len = MessageDigest::sha256().size();
+        let mut output = vec![0u8; hash_len * 255 + 1];
+
+        assert!(expander.expand_slice(&[b"info"], &mut output).is_err());
+    }
+
+    #[test]
+    fn expand_slice_accepts_output_at_rfc_limit() {
+        let hkdf = Hkdf::<Sha256>::DEFAULT;
+        let expander = hkdf.extract_from_secret(None, b"ikm");
+        let hash_len = MessageDigest::sha256().size();
+        let mut output = vec![0u8; hash_len * 255];
+
+        expander
+            .expand_slice(&[b"info"], &mut output)
+            .expect("HKDF expand at RFC limit should succeed");
+
+        assert!(output.iter().any(|byte| *byte != 0));
     }
 }
