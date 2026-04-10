@@ -1,7 +1,5 @@
-use std::{
-    mem::MaybeUninit,
-    ptr::{self},
-};
+#[cfg(not(feature = "fips"))]
+use std::{mem::MaybeUninit, ptr};
 
 use boring::{
     ec::{EcGroup, EcKey},
@@ -9,12 +7,16 @@ use boring::{
     nid::Nid,
     pkey::{PKey, PKeyRef, Private},
 };
+#[cfg(not(feature = "fips"))]
 use boring_additions::evp::EvpPkeyCtx;
+#[cfg(not(feature = "fips"))]
 use foreign_types::ForeignType;
 use rustls::crypto;
 use spki::der::Decode;
 
-use crate::helper::{cvt, cvt_p, log_and_map};
+use crate::helper::log_and_map;
+#[cfg(not(feature = "fips"))]
+use crate::helper::{cvt, cvt_p};
 
 use super::DhKeyType;
 
@@ -30,14 +32,9 @@ pub struct KeyExchange {
 impl KeyExchange {
     /// Creates a new `KeyExchange` using a random
     /// private key for the `X25519` Edwards curve
+    #[cfg(not(feature = "fips"))]
     pub fn with_x25519() -> Result<Self, ErrorStack> {
         Self::ed_from_curve(Nid::from_raw(boring_sys::NID_X25519))
-    }
-
-    /// Creates a new `KeyExchange` using a random
-    /// private key for the `X448` Edwards curve
-    pub fn with_x448() -> Result<Self, ErrorStack> {
-        Self::ed_from_curve(Nid::from_raw(boring_sys::NID_X448))
     }
 
     /// Creates a new `KeyExchange` using a random
@@ -51,12 +48,6 @@ impl KeyExchange {
     /// private key for `sepc384r1` curve
     pub fn with_secp384r1() -> Result<Self, ErrorStack> {
         Self::ec_from_curve(Nid::SECP384R1)
-    }
-
-    /// Creates a new `KeyExchange` using a random
-    /// private key for `sep521r1` curve
-    pub fn with_secp521r1() -> Result<Self, ErrorStack> {
-        Self::ec_from_curve(Nid::SECP521R1)
     }
 
     /// Allows getting a new `KeyExchange` using Eliptic Curves
@@ -76,6 +67,7 @@ impl KeyExchange {
 
     /// Allows getting a new `KeyExchange` using Edwards Curves
     /// on the specified curve
+    #[cfg(not(feature = "fips"))]
     fn ed_from_curve(nid: Nid) -> Result<Self, ErrorStack> {
         let pkey_ctx = unsafe {
             EvpPkeyCtx::from_ptr(cvt_p(boring_sys::EVP_PKEY_CTX_new_id(
@@ -129,8 +121,8 @@ impl KeyExchange {
 
                 crate::verify::ec::create_public_key(group, point.as_ref())?
             }
+            #[cfg(not(feature = "fips"))]
             DhKeyType::ED(nid) => crate::verify::ed::public_key(peer_pub_key, Nid::from_raw(*nid))?,
-            _ => unimplemented!(),
         };
 
         let mut deriver = boring::derive::Deriver::new(&self.own_key)?;
@@ -163,12 +155,11 @@ impl crypto::ActiveKeyExchange for KeyExchange {
 
     fn group(&self) -> rustls::NamedGroup {
         match self.key_type {
+            #[cfg(not(feature = "fips"))]
             DhKeyType::ED(boring_sys::NID_X25519) => rustls::NamedGroup::X25519,
-            DhKeyType::ED(boring_sys::NID_X448) => rustls::NamedGroup::X448,
             DhKeyType::EC((_, boring_sys::NID_X9_62_prime256v1)) => rustls::NamedGroup::secp256r1,
             DhKeyType::EC((_, boring_sys::NID_secp384r1)) => rustls::NamedGroup::secp384r1,
-            DhKeyType::EC((_, boring_sys::NID_secp521r1)) => rustls::NamedGroup::secp521r1,
-            _ => unimplemented!(),
+            _ => unreachable!("unsupported key type"),
         }
     }
 }
@@ -190,6 +181,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "fips"))]
     fn test_derive_ed() {
         let alice = Box::new(KeyExchange::with_x25519().unwrap());
         let bob = KeyExchange::with_x25519().unwrap();

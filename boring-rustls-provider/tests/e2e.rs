@@ -22,7 +22,13 @@ async fn test_tls13_crypto() {
     let root_store = pki.client_root_store();
     let server_config = pki.server_config();
 
-    let ciphers = [
+    #[cfg(feature = "fips")]
+    let ciphers = vec![
+        SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
+        SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
+    ];
+    #[cfg(not(feature = "fips"))]
+    let ciphers = vec![
         SupportedCipherSuite::Tls13(&tls13::AES_128_GCM_SHA256),
         SupportedCipherSuite::Tls13(&tls13::AES_256_GCM_SHA384),
         SupportedCipherSuite::Tls13(&tls13::CHACHA20_POLY1305_SHA256),
@@ -324,12 +330,12 @@ fn non_fips_provider_includes_pq_group() {
     assert_eq!(
         groups[1],
         NamedGroup::X25519,
-        "X25519 should remain the first classical fallback"
+        "X25519 should be the first classical fallback"
     );
     assert_eq!(
         groups[2],
-        NamedGroup::X448,
-        "X448 should remain ahead of NIST P-curves in non-FIPS mode"
+        NamedGroup::secp256r1,
+        "P-256 should follow X25519, matching boring's default order"
     );
 }
 
@@ -341,7 +347,13 @@ async fn test_tls12_ec_crypto() {
     let root_store = pki.client_root_store();
     let server_config = pki.server_config();
 
-    let ciphers = [
+    #[cfg(feature = "fips")]
+    let ciphers = vec![
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES128_GCM_SHA256),
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES256_GCM_SHA384),
+    ];
+    #[cfg(not(feature = "fips"))]
+    let ciphers = vec![
         SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES128_GCM_SHA256),
         SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_AES256_GCM_SHA384),
         SupportedCipherSuite::Tls12(&tls12::ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256),
@@ -368,7 +380,13 @@ async fn test_tls12_rsa_crypto() {
     let root_store = pki.client_root_store();
     let server_config = pki.server_config();
 
-    let ciphers = [
+    #[cfg(feature = "fips")]
+    let ciphers = vec![
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
+        SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES256_GCM_SHA384),
+    ];
+    #[cfg(not(feature = "fips"))]
+    let ciphers = vec![
         SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
         SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES256_GCM_SHA384),
         SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256),

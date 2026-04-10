@@ -42,23 +42,13 @@ ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 
 ### Key Exchange Groups
 
-Post-quantum hybrid (requires `mlkem` feature, TLS 1.3 only):
-```
-X25519MLKEM768 (0x11ec)
-```
+Matches boring's default supported group list:
 
-ECDHE:
 ```
+X25519MLKEM768 (0x11ec, requires mlkem feature, TLS 1.3 only)
 X25519
-X448
 secp256r1 (P-256)
 secp384r1 (P-384)
-secp521r1 (P-521)
-```
-
-FFDHE:
-```
-ffdhe2048
 ```
 
 When `mlkem` is enabled, X25519MLKEM768 is the preferred (first) group in both
@@ -108,7 +98,7 @@ boring's `fips202205` compliance policy:
 
 - **Cipher suites**: AES-GCM only (no ChaCha20-Poly1305).
 - **Key exchange groups**: X25519MLKEM768 (preferred), P-256, and P-384 only
-  (no standalone X25519, X448, P-521, or FFDHE).
+  (no standalone X25519).
 - **Signature algorithms**: RSA PKCS#1 / PSS and ECDSA with P-256 or P-384 only
   (no P-521, Ed25519, or Ed448).
 
