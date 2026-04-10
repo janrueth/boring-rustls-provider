@@ -5,11 +5,12 @@ use tokio::{
     net::TcpStream,
 };
 
-use boring_rustls_provider::{tls12, tls13};
-use rustls::{
-    version::{TLS12, TLS13},
-    ClientConfig, ServerConfig, SupportedCipherSuite,
-};
+#[cfg(feature = "tls12")]
+use boring_rustls_provider::tls12;
+use boring_rustls_provider::tls13;
+#[cfg(feature = "tls12")]
+use rustls::version::TLS12;
+use rustls::{version::TLS13, ClientConfig, ServerConfig, SupportedCipherSuite};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -41,17 +42,107 @@ async fn test_tls13_crypto() {
 }
 
 #[test]
-#[cfg(any(feature = "fips", feature = "fips-only"))]
+#[cfg(feature = "fips")]
 fn is_fips_enabled() {
     assert!(boring::fips::enabled());
 }
 
 #[test]
-#[cfg(not(any(feature = "fips", feature = "fips-only")))]
+#[cfg(feature = "fips")]
+fn fips_provider_excludes_chacha20_cipher_suites() {
+    use rustls::CipherSuite;
+
+    let provider = boring_rustls_provider::provider();
+    let disallowed = [
+        CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
+        CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+        CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    ];
+
+    for suite in provider.cipher_suites {
+        let selected = suite.suite();
+        assert!(
+            !disallowed.contains(&selected),
+            "FIPS provider exposed disallowed cipher suite: {selected:?}"
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "fips")]
+fn fips_provider_restricts_kx_groups() {
+    use rustls::NamedGroup;
+
+    let provider = boring_rustls_provider::provider();
+    let groups = provider
+        .kx_groups
+        .iter()
+        .map(|group| group.name())
+        .collect::<Vec<_>>();
+
+    assert!(groups.contains(&NamedGroup::secp256r1));
+    assert!(groups.contains(&NamedGroup::secp384r1));
+    for group in groups {
+        assert!(
+            matches!(group, NamedGroup::secp256r1 | NamedGroup::secp384r1),
+            "FIPS provider exposed disallowed KX group: {group:?}"
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "fips")]
+fn fips_provider_excludes_disallowed_signature_schemes() {
+    use rustls::SignatureScheme;
+
+    let provider = boring_rustls_provider::provider();
+    let schemes = provider
+        .signature_verification_algorithms
+        .mapping
+        .iter()
+        .map(|(scheme, _)| *scheme)
+        .collect::<Vec<_>>();
+
+    assert!(schemes.contains(&SignatureScheme::RSA_PSS_SHA256));
+    assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP256_SHA256));
+
+    for disallowed in [
+        SignatureScheme::ECDSA_NISTP521_SHA512,
+        SignatureScheme::ED25519,
+        SignatureScheme::ED448,
+    ] {
+        assert!(
+            !schemes.contains(&disallowed),
+            "FIPS provider exposed disallowed signature scheme: {disallowed:?}"
+        );
+    }
+}
+
+#[test]
+#[cfg(not(feature = "fips"))]
 fn is_fips_disabled() {
     assert!(!boring::fips::enabled());
 }
 
+#[test]
+#[cfg(not(feature = "fips"))]
+fn non_fips_provider_keeps_non_fips_algorithms() {
+    use rustls::{CipherSuite, NamedGroup};
+
+    let provider = boring_rustls_provider::provider();
+
+    assert!(provider
+        .cipher_suites
+        .iter()
+        .any(|suite| { suite.suite() == CipherSuite::TLS13_CHACHA20_POLY1305_SHA256 }));
+
+    assert!(provider
+        .kx_groups
+        .iter()
+        .any(|group| group.name() == NamedGroup::X25519));
+}
+
+#[cfg(feature = "tls12")]
 #[tokio::test]
 async fn test_tls12_ec_crypto() {
     let pki = TestPki::new(&rcgen::PKCS_ECDSA_P256_SHA256);
@@ -78,6 +169,7 @@ async fn test_tls12_ec_crypto() {
     }
 }
 
+#[cfg(feature = "tls12")]
 #[tokio::test]
 async fn test_tls12_rsa_crypto() {
     let pki = TestPki::new(&rcgen::PKCS_RSA_SHA256);
@@ -188,9 +280,14 @@ impl TestPki {
     }
 
     fn server_config(self) -> Arc<ServerConfig> {
+        #[cfg(feature = "tls12")]
+        let versions: &[&'static rustls::SupportedProtocolVersion] = &[&TLS12, &TLS13];
+        #[cfg(not(feature = "tls12"))]
+        let versions: &[&'static rustls::SupportedProtocolVersion] = &[&TLS13];
+
         let mut server_config =
             ServerConfig::builder_with_provider(Arc::new(boring_rustls_provider::provider()))
-                .with_protocol_versions(&[&TLS12, &TLS13])
+                .with_protocol_versions(versions)
                 .unwrap()
                 .with_no_client_auth()
                 .with_single_cert(vec![self.server_cert_der], self.server_key_der)

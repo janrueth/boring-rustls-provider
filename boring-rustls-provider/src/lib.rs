@@ -22,11 +22,11 @@ pub mod tls13;
 pub mod verify;
 
 pub fn provider() -> CryptoProvider {
-    #[cfg(feature = "fips-only")]
+    #[cfg(feature = "fips")]
     {
         provider_with_ciphers(ALL_FIPS_CIPHER_SUITES.to_vec())
     }
-    #[cfg(not(feature = "fips-only"))]
+    #[cfg(not(feature = "fips"))]
     {
         provider_with_ciphers(ALL_CIPHER_SUITES.to_vec())
     }
@@ -35,13 +35,13 @@ pub fn provider() -> CryptoProvider {
 pub fn provider_with_ciphers(ciphers: Vec<rustls::SupportedCipherSuite>) -> CryptoProvider {
     CryptoProvider {
         cipher_suites: ciphers,
-        #[cfg(feature = "fips-only")]
+        #[cfg(feature = "fips")]
         kx_groups: ALL_FIPS_KX_GROUPS.to_vec(),
-        #[cfg(not(feature = "fips-only"))]
+        #[cfg(not(feature = "fips"))]
         kx_groups: ALL_KX_GROUPS.to_vec(),
-        #[cfg(feature = "fips-only")]
+        #[cfg(feature = "fips")]
         signature_verification_algorithms: verify::ALL_FIPS_ALGORITHMS,
-        #[cfg(not(feature = "fips-only"))]
+        #[cfg(not(feature = "fips"))]
         signature_verification_algorithms: verify::ALL_ALGORITHMS,
         secure_random: &Provider,
         key_provider: &Provider,
@@ -99,18 +99,15 @@ static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
 ];
 
-/// Allowed KX curves for FIPS are recommended
-/// in [NIST SP 800-186](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-186.pdf)
+/// Allowed KX groups for FIPS per [SP 800-52r2](https://doi.org/10.6028/NIST.SP.800-52r2),
+/// aligned with boring's `fips202205` compliance policy.
 ///
-/// See Sec. 3.1.2 Table 2
-/// Ordered in decending order of security strength
+/// See Section 3.3.1 and 3.4.2.2.
+// TODO: Add P256Kyber768Draft00 once the PQ hybrid KEM is implemented (Step 3).
 #[allow(unused)]
 pub const ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
-    &kx::Secp521r1 as _, // P-521 in FIPS lingo
-    &kx::X448 as _,      // Curve448 in FIPS lingo
-    &kx::Secp384r1 as _, // P-384 in FIPS lingo
-    &kx::X25519 as _,    // Curve25519 in FIPS lingo
-    &kx::Secp256r1 as _, // P-256 in FIPS lingo
+    &kx::Secp256r1 as _, // P-256
+    &kx::Secp384r1 as _, // P-384
 ];
 
 #[allow(unused)]

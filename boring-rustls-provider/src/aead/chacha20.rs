@@ -14,6 +14,7 @@ impl BoringAead for ChaCha20Poly1305 {}
 impl BoringCipher for ChaCha20Poly1305 {
     const EXPLICIT_NONCE_LEN: usize = 0;
 
+    #[cfg(feature = "tls12")]
     const FIXED_IV_LEN: usize = 12;
 
     const KEY_SIZE: usize = 32;
