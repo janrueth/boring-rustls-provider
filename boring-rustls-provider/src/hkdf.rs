@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use boring::hash::MessageDigest;
 use rustls::crypto::tls13::{self, Hkdf as RustlsHkdf};
+use zeroize::Zeroizing;
 
 use crate::helper::{cvt, cvt_p};
 
@@ -67,7 +68,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         let digest = T::new_hash();
         let hash_size = digest.size();
 
-        let mut prk = [0u8; boring_sys::EVP_MAX_MD_SIZE as usize];
+        let mut prk = Zeroizing::new([0u8; boring_sys::EVP_MAX_MD_SIZE as usize]);
         let mut prk_len = 0;
 
         // if salt isn't set we usen these bytes here as salt
@@ -103,7 +104,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         okm: &rustls::crypto::tls13::OkmBlock,
     ) -> Box<dyn rustls::crypto::tls13::HkdfExpander> {
         let okm = okm.as_ref();
-        let mut prk = [0u8; boring_sys::EVP_MAX_MD_SIZE as usize];
+        let mut prk = Zeroizing::new([0u8; boring_sys::EVP_MAX_MD_SIZE as usize]);
         let prk_len = okm.len();
 
         prk[..prk_len].copy_from_slice(okm);
@@ -121,7 +122,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         message: &[u8],
     ) -> rustls::crypto::hmac::Tag {
         let digest = T::new_hash();
-        let mut hash = [0u8; boring_sys::EVP_MAX_MD_SIZE as usize];
+        let mut hash = Zeroizing::new([0u8; boring_sys::EVP_MAX_MD_SIZE as usize]);
         let mut hash_len = 0u32;
         unsafe {
             cvt_p(boring_sys::HMAC(
@@ -140,7 +141,7 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
 }
 
 struct HkdfExpander {
-    prk: [u8; boring_sys::EVP_MAX_MD_SIZE as usize],
+    prk: Zeroizing<[u8; boring_sys::EVP_MAX_MD_SIZE as usize]>,
     prk_len: usize,
     digest: MessageDigest,
 }
@@ -187,7 +188,7 @@ impl tls13::HkdfExpander for HkdfExpander {
     /// This is infallible, because by definition `OkmBlock` is always exactly
     /// `HashLen` bytes long.
     fn expand_block(&self, info: &[&[u8]]) -> tls13::OkmBlock {
-        let mut output = [0u8; boring_sys::EVP_MAX_MD_SIZE as usize];
+        let mut output = Zeroizing::new([0u8; boring_sys::EVP_MAX_MD_SIZE as usize]);
         let output_len = self.hash_len();
 
         self.expand_slice(info, &mut output[..output_len])

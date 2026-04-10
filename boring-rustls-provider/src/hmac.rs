@@ -4,6 +4,7 @@ use boring::hash::MessageDigest;
 use boring_additions::hmac::HmacCtx;
 use foreign_types::ForeignType;
 use rustls::crypto;
+use zeroize::Zeroizing;
 
 use crate::helper::{cvt, cvt_p};
 
@@ -30,7 +31,7 @@ impl crypto::hmac::Hmac for BoringHmac {
         Box::new(BoringHmacKey {
             ctx,
             md,
-            key: key.to_vec(),
+            key: Zeroizing::new(key.to_vec()),
         })
     }
 
@@ -41,11 +42,10 @@ impl crypto::hmac::Hmac for BoringHmac {
     }
 }
 
-#[derive(Clone)]
 struct BoringHmacKey {
     ctx: HmacCtx,
     md: MessageDigest,
-    key: Vec<u8>,
+    key: Zeroizing<Vec<u8>>,
 }
 
 impl BoringHmacKey {
@@ -99,8 +99,8 @@ impl crypto::hmac::Key for BoringHmacKey {
 
         self.update(last);
 
-        let mut out = [0u8; 32];
-        let out_len = self.finish(&mut out);
+        let mut out = Zeroizing::new([0u8; boring_sys::EVP_MAX_MD_SIZE as usize]);
+        let out_len = self.finish(&mut out[..]);
 
         crypto::hmac::Tag::new(&out[..out_len])
     }
@@ -112,7 +112,7 @@ impl crypto::hmac::Key for BoringHmacKey {
 
 #[cfg(test)]
 mod tests {
-    use super::SHA256;
+    use super::{SHA256, SHA384};
     use hex_literal::hex;
 
     #[test]
@@ -140,5 +140,24 @@ mod tests {
             tag.as_ref(),
             hex!("11fa4a6ee97bebfad9e1087145c556fec9a786cad0659aa10702d21bd2968305")
         );
+    }
+
+    #[test]
+    fn test_sha384_hmac_len() {
+        let hasher = SHA384.with_key("Very Secret".as_bytes());
+
+        let tag = hasher.sign_concat(
+            &[],
+            &[
+                "yay".as_bytes(),
+                "this".as_bytes(),
+                "works".as_bytes(),
+                "well".as_bytes(),
+            ],
+            &[],
+        );
+
+        assert_eq!(tag.as_ref().len(), hasher.tag_len());
+        assert_eq!(tag.as_ref().len(), 48);
     }
 }
