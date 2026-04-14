@@ -26,6 +26,12 @@ pub mod verify;
 pub fn provider() -> CryptoProvider {
     #[cfg(feature = "fips")]
     {
+        if !boring::fips::enabled() {
+            panic!(
+                "boring-rustls-provider is built with the 'fips' feature, but the underlying \
+                BoringSSL library is not in FIPS mode."
+            );
+        }
         provider_with_ciphers(ALL_FIPS_CIPHER_SUITES.to_vec())
     }
     #[cfg(not(feature = "fips"))]
