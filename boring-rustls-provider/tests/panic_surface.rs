@@ -14,109 +14,115 @@ const BANNED_TOKENS: &[&str] = &[
 
 struct AllowlistedPanic {
     path_suffix: &'static str,
-    line_fragment: &'static str,
+    message_fragment: &'static str,
     reason: &'static str,
 }
 
 const ALLOWLIST: &[AllowlistedPanic] = &[
     AllowlistedPanic {
+        path_suffix: "boring-rustls-provider/src/lib.rs",
+        message_fragment:
+            "boring-rustls-provider is built with the 'fips' feature, but the underlying BoringSSL library is not in FIPS mode",
+        reason: "FIPS runtime check; this panic is intentional and required for compliance",
+    },
+    AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hash.rs",
-        line_fragment: "failed getting hash digest",
+        message_fragment: "failed getting hash digest",
         reason: "rustls hash trait is infallible; provider currently cannot surface this as Result",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hash.rs",
-        line_fragment: "failed getting hasher",
+        message_fragment: "failed getting hasher",
         reason: "rustls hash trait is infallible; provider currently cannot surface this as Result",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hash.rs",
-        line_fragment: "hash::Hash is only instantiated with SHA-2 digests",
+        message_fragment: "hash::Hash is only instantiated with SHA-2 digests",
         reason: "constructor invariant over static hash-provider constants",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hash.rs",
-        line_fragment: "failed getting digest",
+        message_fragment: "failed getting digest",
         reason: "rustls hash trait is infallible; provider currently cannot surface this as Result",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hash.rs",
-        line_fragment: "failed finishing hash",
+        message_fragment: "failed finishing hash",
         reason: "rustls hash trait is infallible; provider currently cannot surface this as Result",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hash.rs",
-        line_fragment: "failed adding data to hash",
+        message_fragment: "failed adding data to hash",
         reason: "rustls hash trait is infallible; provider currently cannot surface this as Result",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hkdf.rs",
-        line_fragment: "HKDF_extract failed",
+        message_fragment: "HKDF_extract failed",
         reason: "rustls hkdf trait is infallible at this call site",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hkdf.rs",
-        line_fragment: "HMAC failed",
+        message_fragment: "HMAC failed",
         reason: "rustls hkdf trait is infallible at this call site",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hkdf.rs",
-        line_fragment: "failed hkdf expand",
+        message_fragment: "failed hkdf expand",
         reason: "expand_block API is infallible in rustls",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hmac.rs",
-        line_fragment: "failed getting digest",
+        message_fragment: "failed getting digest",
         reason: "rustls hmac trait is infallible at this call site",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hmac.rs",
-        line_fragment: "failed initializing hmac",
+        message_fragment: "failed initializing hmac",
         reason: "rustls hmac trait is infallible at this call site",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hmac.rs",
-        line_fragment: "failed updating hmac",
+        message_fragment: "failed updating hmac",
         reason: "rustls hmac trait is infallible at this call site",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hmac.rs",
-        line_fragment: "failed hmac final",
+        message_fragment: "failed hmac final",
         reason: "rustls hmac trait is infallible at this call site",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hmac.rs",
-        line_fragment: "failed creating HMAC_CTX",
+        message_fragment: "failed creating HMAC_CTX",
         reason: "rustls hmac trait is infallible at this call site",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/prf.rs",
-        line_fragment: "failed getting digest",
+        message_fragment: "failed getting digest",
         reason: "rustls tls12::Prf::for_secret is infallible",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/prf.rs",
-        line_fragment: "failed calculating prf",
+        message_fragment: "failed calculating prf",
         reason: "rustls tls12::Prf::for_secret is infallible",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/verify/rsa.rs",
-        line_fragment: "BoringRsaVerifier only supports configured RSA schemes",
+        message_fragment: "BoringRsaVerifier only supports configured RSA schemes",
         reason: "static verifier configuration invariant",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/verify/ec.rs",
-        line_fragment: "BoringEcVerifier only supports configured ECDSA schemes",
+        message_fragment: "BoringEcVerifier only supports configured ECDSA schemes",
         reason: "static verifier configuration invariant",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/verify/ed.rs",
-        line_fragment: "BoringEdVerifier only supports configured EdDSA schemes",
+        message_fragment: "BoringEdVerifier only supports configured EdDSA schemes",
         reason: "static verifier configuration invariant",
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/kx/ex.rs",
-        line_fragment: "unsupported key type",
+        message_fragment: "unsupported key type",
         reason: "static KX type invariant",
     },
 ];
@@ -146,7 +152,8 @@ fn no_unreviewed_runtime_panic_constructs() {
                 let content = fs::read_to_string(&path)
                     .unwrap_or_else(|e| panic!("failed to read {}: {e}", rel));
 
-                for (line_no, line) in runtime_lines_only(&content) {
+                let lines = runtime_lines_only(&content);
+                for (i, &(line_no, line)) in lines.iter().enumerate() {
                     let trimmed = line.trim();
                     if trimmed.starts_with("//") {
                         continue;
@@ -157,8 +164,15 @@ fn no_unreviewed_runtime_panic_constructs() {
                             continue;
                         }
 
+                        // Collect the full expression for multiline
+                        // macros (e.g. panic! spanning several lines)
+                        // so the allowlist fragment can match anywhere
+                        // in the call, not just the opening line.
+                        let full_expr = collect_expression(&lines, i);
+
                         let allowed = ALLOWLIST.iter().find(|allow| {
-                            rel.ends_with(allow.path_suffix) && line.contains(allow.line_fragment)
+                            rel.ends_with(allow.path_suffix)
+                                && full_expr.contains(allow.message_fragment)
                         });
                         if allowed.is_none() {
                             violations.push(format!("{rel}:{line_no}: {trimmed}"));
@@ -178,7 +192,7 @@ fn no_unreviewed_runtime_panic_constructs() {
 }
 
 #[test]
-fn allowlist_entries_have_matching_runtime_lines() {
+fn allowlist_entries_have_matching_runtime_call_sites() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
         .parent()
@@ -189,13 +203,18 @@ fn allowlist_entries_have_matching_runtime_lines() {
         let path = repo_root.join(entry.path_suffix);
         let content = fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", entry.path_suffix));
-        let found = runtime_lines_only(&content)
-            .into_iter()
-            .any(|(_, line)| line.contains(entry.line_fragment));
+        let lines = runtime_lines_only(&content);
+        let found = lines.iter().enumerate().any(|(i, &(_, line))| {
+            if !BANNED_TOKENS.iter().any(|t| line.contains(t)) {
+                return false;
+            }
+            let full_expr = collect_expression(&lines, i);
+            full_expr.contains(entry.message_fragment)
+        });
         if !found {
             missing.push(format!(
                 "{} :: '{}' ({})",
-                entry.path_suffix, entry.line_fragment, entry.reason
+                entry.path_suffix, entry.message_fragment, entry.reason
             ));
         }
     }
@@ -241,4 +260,50 @@ fn collect_rs_files_rec(root: &Path, acc: &mut Vec<PathBuf>) -> Result<(), std::
     }
 
     Ok(())
+}
+
+/// Starting from `lines[start]`, join lines until parentheses balance.
+/// This lets allowlist fragments match against multiline macro invocations
+/// like `panic!("...\n...")`.
+fn collect_expression(lines: &[(usize, &str)], start: usize) -> String {
+    let mut depth: i32 = 0;
+    let mut parts = Vec::new();
+    for &(_, line) in &lines[start..] {
+        for ch in line.chars() {
+            match ch {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+        }
+        parts.push(line);
+        if depth <= 0 {
+            break;
+        }
+    }
+    let joined = parts.join(" ");
+    // Collapse Rust string-literal line continuations (`\` at end of a
+    // string line followed by whitespace on the next) so allowlist
+    // fragments can naturally span across them.
+    let mut result = String::with_capacity(joined.len());
+    let mut chars = joined.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            // If every char from here to the next non-whitespace is
+            // whitespace, this is a continuation — drop the `\` and the
+            // gap. Otherwise keep the backslash as-is.
+            let rest: String = chars.clone().collect();
+            if let Some(pos) = rest.find(|c: char| !c.is_whitespace()) {
+                for _ in 0..pos {
+                    chars.next();
+                }
+                // don't push the backslash
+            } else {
+                result.push(ch);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
