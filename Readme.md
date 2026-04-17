@@ -1,6 +1,9 @@
 # boring-rustls-provider
 
+[![Crates.io Version](https://img.shields.io/crates/v/boring-rustls-provider)](https://crates.io/crates/boring-rustls-provider/)
+[![docs.rs](https://img.shields.io/docsrs/boring-rustls-provider)](https://docs.rs/boring-rustls-provider/latest/boring_rustls_provider/)
 [![Build Status](https://github.com/janrueth/boring-rustls-provider/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/janrueth/boring-rustls-provider/actions/workflows/ci.yml?query=branch%3Amain)
+
 
 A [BoringSSL](https://github.com/cloudflare/boring)-based [rustls](https://github.com/rustls/rustls) crypto provider.
 
