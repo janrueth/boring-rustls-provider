@@ -3,7 +3,7 @@ use aead::{
     consts::{U12, U16},
     AeadCore,
 };
-use boring_additions::aead::Algorithm;
+use boring::aead::Algorithm;
 use rustls::{crypto::cipher, ConnectionTrafficSecrets};
 
 /// `ChaCha20` with `Poly1305` cipher

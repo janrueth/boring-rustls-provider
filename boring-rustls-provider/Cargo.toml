@@ -32,7 +32,7 @@ fips-precompiled = ["fips"]
 
 # Enable TLS 1.2 cipher suites (ECDHE-ECDSA and ECDHE-RSA with AES-GCM
 # and ChaCha20-Poly1305). Without this feature only TLS 1.3 is available.
-tls12 = ["rustls/tls12"]
+tls12 = ["rustls/tls12", "boring/prf"]
 
 # Enable debug logging of BoringSSL errors and provider internals via
 # the `log` crate. Useful for diagnosing handshake failures.
@@ -41,9 +41,7 @@ logging = ["log"]
 [dependencies]
 aead = {version = "0.5", default-features = false, features = ["alloc"] }
 boring = { workspace = true }
-boring-additions = { path = "../boring-additions" }
 boring-sys = { workspace = true }
-boring-sys-additions = { path = "../boring-sys-additions" }
 foreign-types = "0.5"
 log = { version = "0.4.4", optional = true }
 rustls = { workspace = true }

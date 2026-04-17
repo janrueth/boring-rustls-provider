@@ -107,8 +107,6 @@ boring's `fips202205` compliance policy:
 | Crate | Purpose |
 |---|---|
 | `boring-rustls-provider` | The main rustls crypto provider. |
-| `boring-additions` | Safe Rust wrappers for BoringSSL APIs not yet exposed by the `boring` crate (AEAD, EVP_PKEY_CTX, HMAC_CTX). Intended for upstreaming. |
-| `boring-sys-additions` | Raw FFI binding for `CRYPTO_tls1_prf` (internal BoringSSL symbol used for FIPS-compliant TLS 1.2 PRF). Intended for upstreaming. |
 | `examples` | Example client binary. |
 
 ## License

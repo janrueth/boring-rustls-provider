@@ -1,6 +1,3 @@
-#[cfg(not(feature = "fips"))]
-use std::{mem::MaybeUninit, ptr};
-
 use boring::{
     ec::{EcGroup, EcKey},
     error::ErrorStack,
@@ -8,15 +5,9 @@ use boring::{
     pkey::Id,
     pkey::{PKey, PKeyRef, Private},
 };
-#[cfg(not(feature = "fips"))]
-use boring_additions::evp::EvpPkeyCtx;
-#[cfg(not(feature = "fips"))]
-use foreign_types::ForeignType;
 use rustls::crypto;
 
 use crate::helper::log_and_map;
-#[cfg(not(feature = "fips"))]
-use crate::helper::{cvt, cvt_p};
 
 use super::DhKeyType;
 
@@ -69,23 +60,7 @@ impl KeyExchange {
     /// on the specified curve
     #[cfg(not(feature = "fips"))]
     fn ed_from_curve(nid: Nid) -> Result<Self, ErrorStack> {
-        let pkey_ctx = unsafe {
-            EvpPkeyCtx::from_ptr(cvt_p(boring_sys::EVP_PKEY_CTX_new_id(
-                nid.as_raw(),
-                ptr::null_mut(),
-            ))?)
-        };
-
-        let own_key: PKey<Private> = unsafe {
-            cvt(boring_sys::EVP_PKEY_keygen_init(pkey_ctx.as_ptr()))?;
-
-            let mut pkey =
-                MaybeUninit::<*mut boring_sys::EVP_PKEY>::new(ptr::null_mut()).assume_init();
-            cvt(boring_sys::EVP_PKEY_keygen(pkey_ctx.as_ptr(), &mut pkey))?;
-
-            PKey::from_ptr(pkey)
-        };
-
+        let own_key = PKey::generate(Id::from_raw(nid.as_raw()))?;
         let pub_bytes = Self::raw_public_key(&own_key)?;
 
         Ok(Self {
