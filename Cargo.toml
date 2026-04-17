@@ -1,11 +1,14 @@
 [package]
 name = "boring-rustls-provider"
-version = "0.0.1"
+version = "5.0.0"
 authors = ["Jan Rüth <boring-rustls-provider@djiehmail.com>"]
 edition = "2024"
 license = "MIT"
-description = "Boringssl rustls provider"
-publish = false
+description = "A BoringSSL-based rustls crypto provider with optional FIPS and post-quantum support"
+repository = "https://github.com/janrueth/boring-rustls-provider"
+readme = "Readme.md"
+keywords = ["tls", "rustls", "boringssl", "crypto", "fips"]
+categories = ["cryptography", "network-programming"]
 
 [features]
 default = []
@@ -40,8 +43,8 @@ logging = ["log"]
 
 [dependencies]
 aead = { version = "0.5", default-features = false, features = ["alloc"] }
-boring = { version = ">=5.1", default-features = false }
-boring-sys = { version = ">=5.1", default-features = false }
+boring = { version = ">=5.1, <6", default-features = false }
+boring-sys = { version = ">=5.1, <6", default-features = false }
 foreign-types = "0.5"
 log = { version = "0.4.4", optional = true }
 rustls = { version = "0.23", default-features = false }
@@ -61,3 +64,6 @@ webpki-roots = { version = "1.0" }
 [[example]]
 name = "client"
 required-features = ["logging"]
+
+[package.metadata.docs.rs]
+features = ["logging", "tls12", "mlkem"]

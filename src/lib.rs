@@ -1,3 +1,30 @@
+//! A [`rustls`] [`CryptoProvider`] backed by [BoringSSL](https://github.com/cloudflare/boring).
+//!
+//! # Quick start
+//!
+//! ```no_run
+//! let config = rustls::ClientConfig::builder_with_provider(
+//!         boring_rustls_provider::provider().into(),
+//!     )
+//!     .with_safe_default_protocol_versions()
+//!     .unwrap()
+//!     .with_root_certificates(rustls::RootCertStore::empty())
+//!     .with_no_client_auth();
+//! ```
+//!
+//! # Features
+//!
+//! No features are enabled by default. The provider ships with TLS 1.3 support
+//! out of the box; additional capabilities are opt-in via feature flags:
+//!
+//! - **`fips`** — Build against FIPS-validated BoringSSL and restrict the
+//!   provider to FIPS-approved algorithms (SP 800-52r2). Implies `mlkem`.
+//! - **`mlkem`** — Enable the X25519MLKEM768 post-quantum hybrid key exchange
+//!   group.
+//! - **`tls12`** — Enable TLS 1.2 cipher suites.
+//! - **`logging`** — Enable debug logging via the [`log`](https://docs.rs/log)
+//!   crate.
+
 use std::sync::Arc;
 
 use helper::log_and_map;
@@ -17,12 +44,22 @@ mod hmac;
 mod kx;
 #[cfg(feature = "tls12")]
 mod prf;
+/// Private key loading and TLS signing operations.
 pub mod sign;
+/// TLS 1.2 cipher suite definitions (requires the `tls12` feature).
 #[cfg(feature = "tls12")]
 pub mod tls12;
+/// TLS 1.3 cipher suite definitions.
 pub mod tls13;
+/// Signature verification algorithms for certificate validation.
 pub mod verify;
 
+/// Returns a [`CryptoProvider`] with the default set of cipher suites and
+/// key exchange groups.
+///
+/// When the `fips` feature is enabled the provider is restricted to
+/// FIPS-approved algorithms and will **panic** if the underlying BoringSSL
+/// library is not running in FIPS mode.
 pub fn provider() -> CryptoProvider {
     #[cfg(feature = "fips")]
     {
@@ -40,6 +77,10 @@ pub fn provider() -> CryptoProvider {
     }
 }
 
+/// Returns a [`CryptoProvider`] using the given cipher suites.
+///
+/// When the `fips` feature is enabled, any non-FIPS cipher suites in
+/// `ciphers` are silently filtered out.
 pub fn provider_with_ciphers(ciphers: Vec<rustls::SupportedCipherSuite>) -> CryptoProvider {
     #[cfg(feature = "fips")]
     let ciphers = {

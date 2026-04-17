@@ -21,3 +21,7 @@ test:
 .PHONY: build
 build:
 	cargo build --all-targets $(CARGO_FEATURES)
+
+.PHONY: doc
+doc:
+	RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps -F logging,tls12,mlkem

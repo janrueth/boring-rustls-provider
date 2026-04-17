@@ -102,13 +102,6 @@ boring's `fips202205` compliance policy:
 - **Signature algorithms**: RSA PKCS#1 / PSS and ECDSA with P-256 or P-384 only
   (no P-521, Ed25519, or Ed448).
 
-## Workspace Structure
-
-| Crate | Purpose |
-|---|---|
-| `boring-rustls-provider` | The main rustls crypto provider. |
-| `examples` | Example client binary. |
-
 ## License
 
 MIT
