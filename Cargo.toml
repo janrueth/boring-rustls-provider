@@ -1,11 +1,7 @@
 [workspace]
 members = [
-  # things that should probably be in boring crate
-  "boring-additions",
   # the main library and tests
   "boring-rustls-provider",
-  # things that should probably be in boring-sys crate
-  "boring-sys-additions",
   # tests and example code
   "examples",
 ]
@@ -17,8 +13,8 @@ default-members = [
 resolver = "2"
 
 [workspace.dependencies]
-boring = { version = "5", default-features = false }
-boring-sys = { version = "5", default-features = false }
+boring = { version = ">=5.1", default-features = false }
+boring-sys = { version = ">=5.1", default-features = false }
 rustls = { version = "0.23", default-features = false }
 rustls-pemfile = { version = "2" }
 rustls-pki-types = { version = "1" }

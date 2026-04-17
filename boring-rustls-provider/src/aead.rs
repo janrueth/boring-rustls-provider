@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use aead::{AeadCore, AeadInPlace, Buffer, Nonce, Tag};
+use boring::aead::{AeadCtx, Algorithm};
 use boring::error::ErrorStack;
-use boring_additions::aead::Algorithm;
 #[cfg(feature = "tls12")]
 use rustls::crypto::cipher::make_tls12_aad;
 use rustls::crypto::cipher::{self, make_tls13_aad, BorrowedPayload, Iv, PrefixedPayload};
@@ -58,7 +58,8 @@ pub(crate) trait QuicCipher: Send + Sync {
 pub(crate) trait BoringAead: BoringCipher + AeadCore + Send + Sync {}
 
 pub(crate) struct BoringAeadCrypter<T: BoringAead> {
-    crypter: boring_additions::aead::Crypter,
+    ctx: AeadCtx,
+    max_overhead: usize,
     iv: Iv,
     tls_version: ProtocolVersion,
     phantom: PhantomData<T>,
@@ -93,8 +94,10 @@ impl<T: BoringAead> BoringAeadCrypter<T> {
             return Err(ErrorStack::get());
         }
 
+        let max_overhead = cipher.max_overhead();
         let crypter = BoringAeadCrypter {
-            crypter: boring_additions::aead::Crypter::new(&cipher, key)?,
+            ctx: AeadCtx::new_default_tag(&cipher, key)?,
+            max_overhead,
             iv,
             tls_version,
             phantom: PhantomData,
@@ -111,8 +114,8 @@ impl<T: BoringAead> aead::AeadInPlace for BoringAeadCrypter<T> {
         buffer: &mut [u8],
     ) -> aead::Result<Tag<Self>> {
         let mut tag = Tag::<Self>::default();
-        self.crypter
-            .seal_in_place(nonce, associated_data, buffer, &mut tag)
+        self.ctx
+            .seal_in_place(nonce, buffer, &mut tag, associated_data)
             .map_err(|e| log_and_map("seal_in_place", e, aead::Error))?;
 
         Ok(tag)
@@ -125,8 +128,8 @@ impl<T: BoringAead> aead::AeadInPlace for BoringAeadCrypter<T> {
         buffer: &mut [u8],
         tag: &Tag<Self>,
     ) -> aead::Result<()> {
-        self.crypter
-            .open_in_place(nonce, associated_data, buffer, tag)
+        self.ctx
+            .open_in_place(nonce, buffer, tag, associated_data)
             .map_err(|e| log_and_map("open_in_place", e, aead::Error))?;
         Ok(())
     }
@@ -153,15 +156,20 @@ where
                 let mut full_payload = PrefixedPayload::with_capacity(total_len);
                 full_payload.extend_from_slice(&nonce.0.as_ref()[fixed_iv_len..]);
                 full_payload.extend_from_chunks(&msg.payload);
-                full_payload.extend_from_slice(&vec![0u8; self.crypter.max_overhead()]);
+                full_payload.extend_from_slice(&vec![0u8; self.max_overhead]);
 
                 let (_, payload) = full_payload.as_mut().split_at_mut(explicit_nonce_len);
                 let (payload, tag) = payload.split_at_mut(msg.payload.len());
                 let aad = cipher::make_tls12_aad(seq, msg.typ, msg.version, msg.payload.len());
-                self.crypter
-                    .seal_in_place(&nonce.0, &aad, payload, tag)
-                    .map_err(|_| rustls::Error::EncryptError)
-                    .map(|_| cipher::OutboundOpaqueMessage::new(msg.typ, msg.version, full_payload))
+                self.ctx
+                    .seal_in_place(&nonce.0, payload, tag, &aad)
+                    .map_err(|_| rustls::Error::EncryptError)?;
+
+                Ok(cipher::OutboundOpaqueMessage::new(
+                    msg.typ,
+                    msg.version,
+                    full_payload,
+                ))
             }
 
             ProtocolVersion::TLSv1_3 => {
@@ -193,10 +201,9 @@ where
     fn encrypted_payload_len(&self, payload_len: usize) -> usize {
         let per_record_overhead = match self.tls_version {
             ProtocolVersion::TLSv1_2 => self
-                .crypter
-                .max_overhead()
+                .max_overhead
                 .saturating_add(<T as BoringCipher>::EXPLICIT_NONCE_LEN),
-            ProtocolVersion::TLSv1_3 => 1usize.saturating_add(self.crypter.max_overhead()),
+            ProtocolVersion::TLSv1_3 => 1usize.saturating_add(self.max_overhead),
             _ => return payload_len,
         };
 
@@ -217,7 +224,7 @@ where
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => {
                 let explicit_nonce_len = <T as BoringCipher>::EXPLICIT_NONCE_LEN;
-                let tag_len = self.crypter.max_overhead();
+                let tag_len = self.max_overhead;
                 let min_payload_len = explicit_nonce_len
                     .checked_add(tag_len)
                     .ok_or(rustls::Error::DecryptError)?;
@@ -254,8 +261,8 @@ where
                 // split off the authentication tag
                 let (payload, tag) = payload.split_at_mut(payload.len() - tag_len);
 
-                self.crypter
-                    .open_in_place(&nonce, &aad, payload, tag)
+                self.ctx
+                    .open_in_place(&nonce, payload, tag, &aad)
                     .map_err(|e| log_and_map("open_in_place", e, rustls::Error::DecryptError))
                     .map(|_| {
                         // rotate the nonce to the end
@@ -311,14 +318,14 @@ where
         let associated_data = header;
         let nonce = cipher::Nonce::new(&self.iv, packet_number);
 
-        if payload.len() < self.crypter.max_overhead() {
+        if payload.len() < self.max_overhead {
             return Err(rustls::Error::DecryptError);
         }
 
-        let (buffer, tag) = payload.split_at_mut(payload.len() - self.crypter.max_overhead());
+        let (buffer, tag) = payload.split_at_mut(payload.len() - self.max_overhead);
 
-        self.crypter
-            .open_in_place(&nonce.0, associated_data, buffer, tag)
+        self.ctx
+            .open_in_place(&nonce.0, buffer, tag, associated_data)
             .map_err(|_| rustls::Error::DecryptError)?;
 
         Ok(buffer)

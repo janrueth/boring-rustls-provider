@@ -1,12 +1,6 @@
-use std::{os::raw::c_void, ptr};
-
 use boring::hash::MessageDigest;
-use boring_additions::hmac::HmacCtx;
-use foreign_types::ForeignType;
 use rustls::crypto;
 use zeroize::Zeroizing;
-
-use crate::helper::{cvt, cvt_p};
 
 /// A SHA256-based Hmac
 #[allow(unused)]
@@ -44,67 +38,19 @@ struct BoringHmacKey {
     key: Zeroizing<Vec<u8>>,
 }
 
-impl BoringHmacKey {
-    fn init(ctx: &HmacCtx, key: &[u8], md: MessageDigest) {
-        unsafe {
-            cvt(boring_sys::HMAC_Init_ex(
-                ctx.as_ptr(),
-                key.as_ptr() as *const c_void,
-                key.len(),
-                md.as_ptr(),
-                ptr::null_mut(),
-            ))
-        }
-        .expect("failed initializing hmac");
-    }
-
-    fn update(ctx: &HmacCtx, bytes: &[u8]) {
-        unsafe {
-            cvt(boring_sys::HMAC_Update(
-                ctx.as_ptr(),
-                bytes.as_ptr(),
-                bytes.len(),
-            ))
-        }
-        .expect("failed updating hmac");
-    }
-
-    fn finish(ctx: &HmacCtx, out: &mut [u8]) -> usize {
-        let mut out_len = 0;
-        unsafe {
-            cvt(boring_sys::HMAC_Final(
-                ctx.as_ptr(),
-                out.as_mut_ptr(),
-                &mut out_len,
-            ))
-        }
-        .expect("failed hmac final");
-        out_len as usize
-    }
-
-    fn new_ctx() -> HmacCtx {
-        unsafe {
-            HmacCtx::from_ptr(cvt_p(boring_sys::HMAC_CTX_new()).expect("failed creating HMAC_CTX"))
-        }
-    }
-}
-
 impl crypto::hmac::Key for BoringHmacKey {
     fn sign_concat(&self, first: &[u8], middle: &[&[u8]], last: &[u8]) -> crypto::hmac::Tag {
-        let ctx = Self::new_ctx();
-        Self::init(&ctx, self.key.as_slice(), self.md);
+        let mut hmac =
+            boring::hmac::Hmac::init(&self.key, &self.md).expect("failed initializing hmac");
 
-        Self::update(&ctx, first);
+        hmac.update(first).expect("failed updating hmac");
         for m in middle {
-            Self::update(&ctx, m);
+            hmac.update(m).expect("failed updating hmac");
         }
+        hmac.update(last).expect("failed updating hmac");
 
-        Self::update(&ctx, last);
-
-        let mut out = Zeroizing::new([0u8; boring_sys::EVP_MAX_MD_SIZE as usize]);
-        let out_len = Self::finish(&ctx, &mut out[..]);
-
-        crypto::hmac::Tag::new(&out[..out_len])
+        let out = hmac.finalize().expect("failed finalizing hmac");
+        crypto::hmac::Tag::new(&out)
     }
 
     fn tag_len(&self) -> usize {

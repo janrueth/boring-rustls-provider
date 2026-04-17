@@ -87,12 +87,7 @@ const ALLOWLIST: &[AllowlistedPanic] = &[
     },
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hmac.rs",
-        message_fragment: "failed hmac final",
-        reason: "rustls hmac trait is infallible at this call site",
-    },
-    AllowlistedPanic {
-        path_suffix: "boring-rustls-provider/src/hmac.rs",
-        message_fragment: "failed creating HMAC_CTX",
+        message_fragment: "failed finalizing hmac",
         reason: "rustls hmac trait is infallible at this call site",
     },
     AllowlistedPanic {
@@ -135,52 +130,48 @@ fn no_unreviewed_runtime_panic_constructs() {
         .expect("crate must be within repository root");
 
     let mut violations = Vec::new();
-    for root in [
-        repo_root.join("boring-rustls-provider/src"),
-        repo_root.join("boring-additions/src"),
-    ] {
-        collect_rs_files(&root)
-            .expect("must be able to enumerate source files")
-            .into_iter()
-            .for_each(|path| {
-                let rel = path
-                    .strip_prefix(repo_root)
-                    .expect("path should be under repo root")
-                    .to_string_lossy()
-                    .to_string();
+    let root = repo_root.join("boring-rustls-provider/src");
+    collect_rs_files(&root)
+        .expect("must be able to enumerate source files")
+        .into_iter()
+        .for_each(|path| {
+            let rel = path
+                .strip_prefix(repo_root)
+                .expect("path should be under repo root")
+                .to_string_lossy()
+                .to_string();
 
-                let content = fs::read_to_string(&path)
-                    .unwrap_or_else(|e| panic!("failed to read {}: {e}", rel));
+            let content =
+                fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", rel));
 
-                let lines = runtime_lines_only(&content);
-                for (i, &(line_no, line)) in lines.iter().enumerate() {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with("//") {
+            let lines = runtime_lines_only(&content);
+            for (i, &(line_no, line)) in lines.iter().enumerate() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+
+                for token in BANNED_TOKENS {
+                    if !line.contains(token) {
                         continue;
                     }
 
-                    for token in BANNED_TOKENS {
-                        if !line.contains(token) {
-                            continue;
-                        }
+                    // Collect the full expression for multiline
+                    // macros (e.g. panic! spanning several lines)
+                    // so the allowlist fragment can match anywhere
+                    // in the call, not just the opening line.
+                    let full_expr = collect_expression(&lines, i);
 
-                        // Collect the full expression for multiline
-                        // macros (e.g. panic! spanning several lines)
-                        // so the allowlist fragment can match anywhere
-                        // in the call, not just the opening line.
-                        let full_expr = collect_expression(&lines, i);
-
-                        let allowed = ALLOWLIST.iter().find(|allow| {
-                            rel.ends_with(allow.path_suffix)
-                                && full_expr.contains(allow.message_fragment)
-                        });
-                        if allowed.is_none() {
-                            violations.push(format!("{rel}:{line_no}: {trimmed}"));
-                        }
+                    let allowed = ALLOWLIST.iter().find(|allow| {
+                        rel.ends_with(allow.path_suffix)
+                            && full_expr.contains(allow.message_fragment)
+                    });
+                    if allowed.is_none() {
+                        violations.push(format!("{rel}:{line_no}: {trimmed}"));
                     }
                 }
-            });
-    }
+            }
+        });
 
     if !violations.is_empty() {
         violations.sort();

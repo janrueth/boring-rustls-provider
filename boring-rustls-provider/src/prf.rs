@@ -1,9 +1,7 @@
-use std::ptr;
-
 use boring::error::ErrorStack;
 use rustls::crypto;
 
-use crate::helper::{cvt, log_and_map};
+use crate::helper::log_and_map;
 
 pub struct PrfTls1WithDigest(pub boring::nid::Nid);
 
@@ -42,24 +40,9 @@ fn prf(
     label: &[u8],
     seed: &[u8],
 ) -> Result<(), ErrorStack> {
-    unsafe {
-        // seed is already concatenated from the randoms, so we
-        // can simply pass it in as a single seed
-        cvt(boring_sys_additions::CRYPTO_tls1_prf(
-            digest.as_ptr(),
-            output.as_mut_ptr(),
-            output.len(),
-            secret.as_ptr(),
-            secret.len(),
-            label.as_ptr(),
-            label.len(),
-            seed.as_ptr(),
-            seed.len(),
-            ptr::null(),
-            0,
-        ))
-    }
-    .map(|_| ())
+    // `seed` is already concatenated from the randoms, so pass it directly as
+    // the full TLS 1.2 PRF seed.
+    boring::prf::tls1_prf(digest, output, secret, label, seed)
 }
 
 #[cfg(test)]

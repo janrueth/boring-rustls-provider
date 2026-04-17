@@ -1,6 +1,6 @@
 use super::{BoringAead, BoringCipher, QuicCipher};
 use aead::consts::{U12, U16};
-use boring_additions::aead::Algorithm;
+use boring::aead::Algorithm;
 use rustls::{crypto::cipher, ConnectionTrafficSecrets};
 
 /// Aes128 AEAD cipher
