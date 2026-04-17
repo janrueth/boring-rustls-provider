@@ -22,6 +22,7 @@ static ALL_RSA_SCHEMES: &[SignatureScheme] = &[
 const PRF_SHA256: prf::PrfTls1WithDigest = prf::PrfTls1WithDigest(boring::nid::Nid::SHA256);
 const PRF_SHA384: prf::PrfTls1WithDigest = prf::PrfTls1WithDigest(boring::nid::Nid::SHA384);
 
+/// TLS 1.2 ECDHE-ECDSA with AES-128-GCM and SHA-256.
 pub static ECDHE_ECDSA_AES128_GCM_SHA256: Tls12CipherSuite = Tls12CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -34,6 +35,7 @@ pub static ECDHE_ECDSA_AES128_GCM_SHA256: Tls12CipherSuite = Tls12CipherSuite {
     sign: ALL_ECDSA_SCHEMES,
 };
 
+/// TLS 1.2 ECDHE-RSA with AES-128-GCM and SHA-256.
 pub static ECDHE_RSA_AES128_GCM_SHA256: Tls12CipherSuite = Tls12CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
@@ -46,6 +48,7 @@ pub static ECDHE_RSA_AES128_GCM_SHA256: Tls12CipherSuite = Tls12CipherSuite {
     sign: ALL_RSA_SCHEMES,
 };
 
+/// TLS 1.2 ECDHE-ECDSA with AES-256-GCM and SHA-384.
 pub static ECDHE_ECDSA_AES256_GCM_SHA384: Tls12CipherSuite = Tls12CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
@@ -58,6 +61,7 @@ pub static ECDHE_ECDSA_AES256_GCM_SHA384: Tls12CipherSuite = Tls12CipherSuite {
     sign: ALL_ECDSA_SCHEMES,
 };
 
+/// TLS 1.2 ECDHE-RSA with AES-256-GCM and SHA-384.
 pub static ECDHE_RSA_AES256_GCM_SHA384: Tls12CipherSuite = Tls12CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
@@ -70,6 +74,9 @@ pub static ECDHE_RSA_AES256_GCM_SHA384: Tls12CipherSuite = Tls12CipherSuite {
     sign: ALL_RSA_SCHEMES,
 };
 
+/// TLS 1.2 ECDHE-ECDSA with ChaCha20-Poly1305 and SHA-256.
+///
+/// Not available in FIPS mode.
 pub static ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: Tls12CipherSuite = Tls12CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
@@ -82,6 +89,9 @@ pub static ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: Tls12CipherSuite = Tls12Ci
     sign: ALL_ECDSA_SCHEMES,
 };
 
+/// TLS 1.2 ECDHE-RSA with ChaCha20-Poly1305 and SHA-256.
+///
+/// Not available in FIPS mode.
 pub static ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: Tls12CipherSuite = Tls12CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,

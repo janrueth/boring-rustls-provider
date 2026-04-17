@@ -4,6 +4,12 @@ pub(crate) mod ec;
 pub(crate) mod ed;
 pub(crate) mod rsa;
 
+/// All supported signature verification algorithms.
+///
+/// Includes RSA (PKCS#1 v1.5 and PSS), ECDSA (P-256, P-384, P-521),
+/// Ed25519, and Ed448.
+///
+/// For the FIPS-restricted subset see [`ALL_FIPS_ALGORITHMS`].
 #[allow(unused)]
 pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
     all: &[

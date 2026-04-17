@@ -2,6 +2,7 @@ use rustls::Tls13CipherSuite;
 
 use crate::{aead, hash, hkdf};
 
+/// TLS 1.3 AES-128-GCM with SHA-256.
 pub static AES_128_GCM_SHA256: Tls13CipherSuite = Tls13CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS13_AES_128_GCM_SHA256,
@@ -13,6 +14,7 @@ pub static AES_128_GCM_SHA256: Tls13CipherSuite = Tls13CipherSuite {
     quic: Some(&aead::Aead::<aead::aes::Aes128>::DEFAULT),
 };
 
+/// TLS 1.3 AES-256-GCM with SHA-384.
 pub static AES_256_GCM_SHA384: Tls13CipherSuite = Tls13CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS13_AES_256_GCM_SHA384,
@@ -24,6 +26,9 @@ pub static AES_256_GCM_SHA384: Tls13CipherSuite = Tls13CipherSuite {
     quic: Some(&aead::Aead::<aead::aes::Aes256>::DEFAULT),
 };
 
+/// TLS 1.3 ChaCha20-Poly1305 with SHA-256.
+///
+/// Not available in FIPS mode.
 pub static CHACHA20_POLY1305_SHA256: Tls13CipherSuite = Tls13CipherSuite {
     common: rustls::crypto::CipherSuiteCommon {
         suite: rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
