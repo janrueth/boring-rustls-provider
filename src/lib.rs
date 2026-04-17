@@ -4,8 +4,8 @@ use helper::log_and_map;
 #[cfg(all(feature = "fips", feature = "log"))]
 use log::warn;
 use rustls::{
-    crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup},
     SupportedCipherSuite,
+    crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup},
 };
 use rustls_pki_types::PrivateKeyDer;
 

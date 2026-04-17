@@ -7,7 +7,7 @@ use boring::{
     rsa::Padding,
     sign::{RsaPssSaltlen, Signer},
 };
-use rustls::{sign::SigningKey, SignatureScheme};
+use rustls::{SignatureScheme, sign::SigningKey};
 use rustls_pki_types::PrivateKeyDer;
 
 use crate::helper::log_and_map;
@@ -349,9 +349,10 @@ mod tests {
             .expect("P-256 key should select P-256 scheme");
         assert_eq!(signer.scheme(), SignatureScheme::ECDSA_NISTP256_SHA256);
 
-        assert!(key
-            .choose_scheme(&[SignatureScheme::ECDSA_NISTP384_SHA384])
-            .is_none());
+        assert!(
+            key.choose_scheme(&[SignatureScheme::ECDSA_NISTP384_SHA384])
+                .is_none()
+        );
     }
 
     #[test]

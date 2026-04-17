@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt-get install -y cmake clang
     - name: Check fmt
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt-get install -y cmake clang
     - name: Lint (default features)
@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt-get install -y cmake clang
     - name: Lint (tls12)
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt-get install -y cmake clang
     - name: Lint (logging,tls12)
@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt-get install -y cmake clang
     - name: Lint (mlkem)
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt-get install -y cmake clang
     - name: Lint (mlkem,tls12)
@@ -95,20 +95,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt-get install -y cmake clang
     - name: Test (fips)
-      run: cargo test -p boring-rustls-provider --all-targets --features fips
+      run: cargo test --all-targets --features fips
 
   check-fips:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt-get install -y cmake clang
     - name: Check (fips)
-      run: cargo check -p boring-rustls-provider --all-targets --features fips
+      run: cargo check --all-targets --features fips
     - name: Check (fips-precompiled)
-      run: cargo check -p boring-rustls-provider --all-targets --features fips-precompiled
+      run: cargo check --all-targets --features fips-precompiled

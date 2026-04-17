@@ -4,15 +4,15 @@ CARGO_FEATURES := $(if $(strip $(FEATURES)),-F "$(FEATURES)",)
 
 .PHONY: fmt
 fmt:
-	cargo fmt --all --check
+	cargo fmt --check
 
 .PHONY: lint
 lint:
-	cargo clippy --workspace --all-targets $(CARGO_FEATURES)
+	cargo clippy --all-targets $(CARGO_FEATURES)
 
 .PHONY: check
 check:
-	cargo check --workspace --all-targets $(CARGO_FEATURES)
+	cargo check --all-targets $(CARGO_FEATURES)
 
 .PHONY: test
 test:

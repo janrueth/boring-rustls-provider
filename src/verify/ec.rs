@@ -1,5 +1,5 @@
 use boring::{error::ErrorStack, hash::MessageDigest};
-use rustls::{pki_types::alg_id, SignatureScheme};
+use rustls::{SignatureScheme, pki_types::alg_id};
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
 use crate::helper;
