@@ -1,7 +1,7 @@
 use super::{BoringAead, BoringCipher, QuicCipher};
 use aead::consts::{U12, U16};
 use boring::aead::Algorithm;
-use rustls::{crypto::cipher, ConnectionTrafficSecrets};
+use rustls::{ConnectionTrafficSecrets, crypto::cipher};
 
 /// Aes128 AEAD cipher
 pub struct Aes128 {}
@@ -129,11 +129,11 @@ fn quic_header_protection_mask<const KEY_SIZE: usize, const SAMPLE_LEN: usize>(
 
 #[cfg(test)]
 mod tests {
-    use aead::{generic_array::GenericArray, AeadCore, Nonce, Tag};
+    use aead::{AeadCore, Nonce, Tag, generic_array::GenericArray};
 
     use crate::aead::{
-        aes::{Aes128, Aes256},
         BoringCipher,
+        aes::{Aes128, Aes256},
     };
 
     #[test]

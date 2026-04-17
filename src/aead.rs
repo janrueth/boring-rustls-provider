@@ -5,7 +5,7 @@ use boring::aead::{AeadCtx, Algorithm};
 use boring::error::ErrorStack;
 #[cfg(feature = "tls12")]
 use rustls::crypto::cipher::make_tls12_aad;
-use rustls::crypto::cipher::{self, make_tls13_aad, BorrowedPayload, Iv, PrefixedPayload};
+use rustls::crypto::cipher::{self, BorrowedPayload, Iv, PrefixedPayload, make_tls13_aad};
 use rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
 
 use crate::helper::log_and_map;
@@ -715,20 +715,20 @@ impl Buffer for EncryptBufferAdapter<'_> {
 #[cfg(test)]
 mod tests {
     use hex_literal::hex;
+    use rustls::ContentType;
+    use rustls::ProtocolVersion;
     use rustls::crypto::cipher::Tls13AeadAlgorithm;
     use rustls::crypto::cipher::{AeadKey, InboundOpaqueMessage, Iv};
     #[cfg(feature = "tls12")]
     use rustls::crypto::cipher::{MessageDecrypter, Tls12AeadAlgorithm};
     use rustls::quic::Algorithm as QuicAlgorithm;
     use rustls::quic::HeaderProtectionKey;
-    use rustls::ContentType;
-    use rustls::ProtocolVersion;
 
     use crate::aead::BoringAeadCrypter;
     use rustls::quic::PacketKey;
 
     use super::aes::Aes128;
-    use super::{chacha20::ChaCha20Poly1305, BoringCipher, QuicHeaderProtector};
+    use super::{BoringCipher, QuicHeaderProtector, chacha20::ChaCha20Poly1305};
 
     #[test]
     fn quic_header_protection_short() {

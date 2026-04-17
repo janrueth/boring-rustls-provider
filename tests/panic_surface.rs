@@ -21,8 +21,7 @@ struct AllowlistedPanic {
 const ALLOWLIST: &[AllowlistedPanic] = &[
     AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/lib.rs",
-        message_fragment:
-            "boring-rustls-provider is built with the 'fips' feature, but the underlying BoringSSL library is not in FIPS mode",
+        message_fragment: "boring-rustls-provider is built with the 'fips' feature, but the underlying BoringSSL library is not in FIPS mode",
         reason: "FIPS runtime check; this panic is intentional and required for compliance",
     },
     AllowlistedPanic {

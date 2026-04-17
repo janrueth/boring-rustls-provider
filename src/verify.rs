@@ -1,4 +1,4 @@
-use rustls::{crypto::WebPkiSupportedAlgorithms, SignatureScheme};
+use rustls::{SignatureScheme, crypto::WebPkiSupportedAlgorithms};
 
 pub(crate) mod ec;
 pub(crate) mod ed;

@@ -1,10 +1,10 @@
 use super::{BoringAead, BoringCipher, QuicCipher};
 use aead::{
-    consts::{U12, U16},
     AeadCore,
+    consts::{U12, U16},
 };
 use boring::aead::Algorithm;
-use rustls::{crypto::cipher, ConnectionTrafficSecrets};
+use rustls::{ConnectionTrafficSecrets, crypto::cipher};
 
 /// `ChaCha20` with `Poly1305` cipher
 pub struct ChaCha20Poly1305 {}
@@ -79,7 +79,7 @@ impl AeadCore for ChaCha20Poly1305 {
 
 #[cfg(test)]
 mod tests {
-    use aead::{generic_array::GenericArray, AeadCore, Nonce, Tag};
+    use aead::{AeadCore, Nonce, Tag, generic_array::GenericArray};
     use hex_literal::hex;
 
     use super::ChaCha20Poly1305;

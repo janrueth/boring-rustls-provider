@@ -1,4 +1,4 @@
-use rustls::{crypto, SignatureScheme, Tls12CipherSuite};
+use rustls::{SignatureScheme, Tls12CipherSuite, crypto};
 
 use crate::{aead, hash, prf};
 

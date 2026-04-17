@@ -8,7 +8,7 @@ use tokio::{
 use boring_rustls_provider::tls13;
 #[cfg(feature = "tls12")]
 use rustls::version::TLS12;
-use rustls::{version::TLS13, ClientConfig, ServerConfig, SupportedCipherSuite};
+use rustls::{ClientConfig, ServerConfig, SupportedCipherSuite, version::TLS13};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -400,15 +400,19 @@ fn non_fips_provider_keeps_non_fips_algorithms() {
 
     let provider = boring_rustls_provider::provider();
 
-    assert!(provider
-        .cipher_suites
-        .iter()
-        .any(|suite| { suite.suite() == CipherSuite::TLS13_CHACHA20_POLY1305_SHA256 }));
+    assert!(
+        provider
+            .cipher_suites
+            .iter()
+            .any(|suite| { suite.suite() == CipherSuite::TLS13_CHACHA20_POLY1305_SHA256 })
+    );
 
-    assert!(provider
-        .kx_groups
-        .iter()
-        .any(|group| group.name() == NamedGroup::X25519));
+    assert!(
+        provider
+            .kx_groups
+            .iter()
+            .any(|group| group.name() == NamedGroup::X25519)
+    );
 }
 
 #[test]
