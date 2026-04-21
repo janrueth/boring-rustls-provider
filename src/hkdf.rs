@@ -139,8 +139,12 @@ impl<T: BoringHash> RustlsHkdf for Hkdf<T> {
         rustls::crypto::hmac::Tag::new(&hash[..hash_len as usize])
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips")
+    fn fips(&self) -> rustls_pki_types::FipsStatus {
+        if cfg!(feature = "fips") {
+            rustls_pki_types::FipsStatus::Pending
+        } else {
+            rustls_pki_types::FipsStatus::Unvalidated
+        }
     }
 }
 

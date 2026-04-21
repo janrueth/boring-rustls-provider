@@ -8,12 +8,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-    let config =
-        rustls::ClientConfig::builder_with_provider(boring_rustls_provider::provider().into())
-            .with_safe_default_protocol_versions()
-            .map_err(|_| std::io::Error::other("failed selecting protocol versions"))?
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
+    let config = rustls::ClientConfig::builder(boring_rustls_provider::provider().into())
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
+        .map_err(|e| std::io::Error::other(format!("failed building client config: {e}")))?;
 
     let server_name = "www.rust-lang.org"
         .try_into()

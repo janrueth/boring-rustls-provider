@@ -5,9 +5,8 @@ use boring::{
     rsa::{Padding, Rsa},
     sign::RsaPssSaltlen,
 };
-use rustls::{SignatureScheme, pki_types::alg_id};
+use rustls::{crypto::SignatureScheme, pki_types::alg_id};
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
-use spki::der::Reader;
 
 use crate::helper::log_and_map;
 
@@ -123,15 +122,21 @@ pub(crate) fn decode_spki_spk(
     // public_key: unfortunately this is not a whole SPKI, but just the key material.
     // decode the two integers manually.
 
-    let mut reader = spki::der::SliceReader::new(spki_spk)
-        .map_err(|e| log_and_map("SliceReader::new", e, InvalidSignature))?;
-    let ne: [spki::der::asn1::UintRef; 2] = reader
-        .decode()
-        .map_err(|e| log_and_map("SliceReader::decode", e, InvalidSignature))?;
+    use spki::der::{Decode, Reader, SliceReader};
 
-    let n = BigNum::from_slice(ne[0].as_bytes())
+    let mut reader = SliceReader::new(spki_spk)
+        .map_err(|e| log_and_map("SliceReader::new", e, InvalidSignature))?;
+    let (n_ref, e_ref) = reader
+        .sequence(|inner: &mut spki::der::SliceReader<'_>| {
+            let n = spki::der::asn1::UintRef::decode(inner)?;
+            let e = spki::der::asn1::UintRef::decode(inner)?;
+            Ok((n, e))
+        })
+        .map_err(|e: spki::der::Error| log_and_map("sequence decode", e, InvalidSignature))?;
+
+    let n = BigNum::from_slice(n_ref.as_bytes())
         .map_err(|e| log_and_map("BigNum::from_slice", e, InvalidSignature))?;
-    let e = BigNum::from_slice(ne[1].as_bytes())
+    let e = BigNum::from_slice(e_ref.as_bytes())
         .map_err(|e| log_and_map("BigNum::from_slice", e, InvalidSignature))?;
 
     PKey::from_rsa(

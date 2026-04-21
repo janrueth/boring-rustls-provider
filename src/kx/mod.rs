@@ -1,4 +1,8 @@
-use rustls::crypto::{self, ActiveKeyExchange};
+use rustls::crypto::{
+    self,
+    kx::{NamedGroup, StartedKeyExchange, SupportedKxGroup},
+};
+use rustls_pki_types::FipsStatus;
 
 use crate::helper::log_and_map;
 
@@ -22,19 +26,20 @@ enum DhKeyType {
 pub struct X25519;
 
 #[cfg(not(feature = "fips"))]
-impl crypto::SupportedKxGroup for X25519 {
-    fn start(&self) -> Result<Box<dyn ActiveKeyExchange + 'static>, rustls::Error> {
-        Ok(Box::new(ex::KeyExchange::with_x25519().map_err(|e| {
-            log_and_map("X25519.start", e, crypto::GetRandomFailed)
-        })?))
+impl SupportedKxGroup for X25519 {
+    fn start(&self) -> Result<StartedKeyExchange, rustls::Error> {
+        Ok(StartedKeyExchange::Single(Box::new(
+            ex::KeyExchange::with_x25519()
+                .map_err(|e| log_and_map("X25519.start", e, crypto::GetRandomFailed))?,
+        )))
     }
 
-    fn name(&self) -> rustls::NamedGroup {
-        rustls::NamedGroup::X25519
+    fn name(&self) -> NamedGroup {
+        NamedGroup::X25519
     }
 
-    fn fips(&self) -> bool {
-        false
+    fn fips(&self) -> FipsStatus {
+        FipsStatus::Unvalidated
     }
 }
 
@@ -42,19 +47,24 @@ impl crypto::SupportedKxGroup for X25519 {
 #[derive(Debug)]
 pub struct Secp256r1;
 
-impl crypto::SupportedKxGroup for Secp256r1 {
-    fn start(&self) -> Result<Box<dyn ActiveKeyExchange + 'static>, rustls::Error> {
-        Ok(Box::new(ex::KeyExchange::with_secp256r1().map_err(
-            |e| log_and_map("Secp256r1.start", e, crypto::GetRandomFailed),
-        )?))
+impl SupportedKxGroup for Secp256r1 {
+    fn start(&self) -> Result<StartedKeyExchange, rustls::Error> {
+        Ok(StartedKeyExchange::Single(Box::new(
+            ex::KeyExchange::with_secp256r1()
+                .map_err(|e| log_and_map("Secp256r1.start", e, crypto::GetRandomFailed))?,
+        )))
     }
 
-    fn name(&self) -> rustls::NamedGroup {
-        rustls::NamedGroup::secp256r1
+    fn name(&self) -> NamedGroup {
+        NamedGroup::secp256r1
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips")
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
     }
 }
 
@@ -62,18 +72,23 @@ impl crypto::SupportedKxGroup for Secp256r1 {
 #[derive(Debug)]
 pub struct Secp384r1;
 
-impl crypto::SupportedKxGroup for Secp384r1 {
-    fn start(&self) -> Result<Box<dyn ActiveKeyExchange + 'static>, rustls::Error> {
-        Ok(Box::new(ex::KeyExchange::with_secp384r1().map_err(
-            |e| log_and_map("Secp384r1.start", e, crypto::GetRandomFailed),
-        )?))
+impl SupportedKxGroup for Secp384r1 {
+    fn start(&self) -> Result<StartedKeyExchange, rustls::Error> {
+        Ok(StartedKeyExchange::Single(Box::new(
+            ex::KeyExchange::with_secp384r1()
+                .map_err(|e| log_and_map("Secp384r1.start", e, crypto::GetRandomFailed))?,
+        )))
     }
 
-    fn name(&self) -> rustls::NamedGroup {
-        rustls::NamedGroup::secp384r1
+    fn name(&self) -> NamedGroup {
+        NamedGroup::secp384r1
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips")
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
     }
 }

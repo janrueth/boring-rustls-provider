@@ -7,7 +7,7 @@ use boring::{
     rsa::Padding,
     sign::{RsaPssSaltlen, Signer},
 };
-use rustls::{SignatureScheme, sign::SigningKey};
+use rustls::crypto::{SignatureScheme, SigningKey};
 use rustls_pki_types::PrivateKeyDer;
 
 use crate::helper::log_and_map;
@@ -190,8 +190,8 @@ fn ec_signer_from_params(
 impl SigningKey for BoringPrivateKey {
     fn choose_scheme(
         &self,
-        offered: &[rustls::SignatureScheme],
-    ) -> Option<Box<dyn rustls::sign::Signer>> {
+        offered: &[SignatureScheme],
+    ) -> Option<Box<dyn rustls::crypto::Signer>> {
         let scheme = match self.1 {
             KeyKind::Rsa => ALL_RSA_SCHEMES
                 .iter()
@@ -205,11 +205,11 @@ impl SigningKey for BoringPrivateKey {
             KeyKind::Ec(EcCurve::P521) => EC_P521_SCHEMES
                 .iter()
                 .find(|scheme| offered.contains(scheme)),
-            KeyKind::Ed25519 if offered.contains(&rustls::SignatureScheme::ED25519) => {
-                Some(&rustls::SignatureScheme::ED25519)
+            KeyKind::Ed25519 if offered.contains(&SignatureScheme::ED25519) => {
+                Some(&SignatureScheme::ED25519)
             }
-            KeyKind::Ed448 if offered.contains(&rustls::SignatureScheme::ED448) => {
-                Some(&rustls::SignatureScheme::ED448)
+            KeyKind::Ed448 if offered.contains(&SignatureScheme::ED448) => {
+                Some(&SignatureScheme::ED448)
             }
             _ => None,
         }?;
@@ -217,19 +217,15 @@ impl SigningKey for BoringPrivateKey {
         Some(Box::new(BoringSigner(self.0.clone(), *scheme)))
     }
 
-    fn algorithm(&self) -> rustls::SignatureAlgorithm {
-        match self.1 {
-            KeyKind::Rsa => rustls::SignatureAlgorithm::RSA,
-            KeyKind::Ec(_) => rustls::SignatureAlgorithm::ECDSA,
-            KeyKind::Ed25519 => rustls::SignatureAlgorithm::ED25519,
-            KeyKind::Ed448 => rustls::SignatureAlgorithm::ED448,
-        }
+    fn public_key(&self) -> Option<rustls_pki_types::SubjectPublicKeyInfoDer<'_>> {
+        let spki_der = self.0.public_key_to_der().ok()?;
+        Some(rustls_pki_types::SubjectPublicKeyInfoDer::from(spki_der))
     }
 }
 
 /// A boringssl-based Signer.
 #[derive(Debug)]
-pub struct BoringSigner(Arc<boring::pkey::PKey<Private>>, rustls::SignatureScheme);
+pub struct BoringSigner(Arc<boring::pkey::PKey<Private>>, SignatureScheme);
 
 impl BoringSigner {
     fn get_signer(&self) -> Result<Signer<'_>, rustls::Error> {
@@ -277,8 +273,8 @@ impl BoringSigner {
     }
 }
 
-impl rustls::sign::Signer for BoringSigner {
-    fn sign(&self, message: &[u8]) -> Result<Vec<u8>, rustls::Error> {
+impl rustls::crypto::Signer for BoringSigner {
+    fn sign(self: Box<Self>, message: &[u8]) -> Result<Vec<u8>, rustls::Error> {
         let mut signer = self.get_signer()?;
         let max_sig_len = signer
             .len()
@@ -296,7 +292,7 @@ impl rustls::sign::Signer for BoringSigner {
         Ok(sig)
     }
 
-    fn scheme(&self) -> rustls::SignatureScheme {
+    fn scheme(&self) -> SignatureScheme {
         self.1
     }
 }
@@ -309,8 +305,7 @@ mod tests {
         pkey::{PKey, Private},
         rsa::Rsa,
     };
-    use rustls::sign::SigningKey;
-    use rustls::{SignatureAlgorithm, SignatureScheme};
+    use rustls::crypto::{SignatureScheme, SigningKey};
     use rustls_pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer};
 
     use super::BoringPrivateKey;
@@ -329,7 +324,7 @@ mod tests {
 
         let key = BoringPrivateKey::try_from(key_der).expect("SEC1 private key should load");
 
-        assert_eq!(key.algorithm(), SignatureAlgorithm::ECDSA);
+        assert!(key.public_key().is_some());
     }
 
     #[test]

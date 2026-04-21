@@ -3,13 +3,12 @@
 //! # Quick start
 //!
 //! ```no_run
-//! let config = rustls::ClientConfig::builder_with_provider(
+//! let config = rustls::ClientConfig::builder(
 //!         boring_rustls_provider::provider().into(),
 //!     )
-//!     .with_safe_default_protocol_versions()
-//!     .unwrap()
 //!     .with_root_certificates(rustls::RootCertStore::empty())
-//!     .with_no_client_auth();
+//!     .with_no_client_auth()
+//!     .unwrap();
 //! ```
 //!
 //! # Features
@@ -25,16 +24,16 @@
 //! - **`logging`** — Enable debug logging via the [`log`](https://docs.rs/log)
 //!   crate.
 
-use std::sync::Arc;
+use std::borrow::Cow;
 
 use helper::log_and_map;
 #[cfg(all(feature = "fips", feature = "log"))]
 use log::warn;
 use rustls::{
     SupportedCipherSuite,
-    crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup},
+    crypto::{CryptoProvider, GetRandomFailed, kx::SupportedKxGroup},
 };
-use rustls_pki_types::PrivateKeyDer;
+use rustls_pki_types::{FipsStatus, PrivateKeyDer};
 
 mod aead;
 mod hash;
@@ -81,7 +80,7 @@ pub fn provider() -> CryptoProvider {
 ///
 /// When the `fips` feature is enabled, any non-FIPS cipher suites in
 /// `ciphers` are silently filtered out.
-pub fn provider_with_ciphers(ciphers: Vec<rustls::SupportedCipherSuite>) -> CryptoProvider {
+pub fn provider_with_ciphers(ciphers: Vec<SupportedCipherSuite>) -> CryptoProvider {
     #[cfg(feature = "fips")]
     let ciphers = {
         let original_len = ciphers.len();
@@ -101,18 +100,33 @@ pub fn provider_with_ciphers(ciphers: Vec<rustls::SupportedCipherSuite>) -> Cryp
         filtered
     };
 
+    // Split cipher suites by TLS version
+    #[cfg_attr(not(feature = "tls12"), allow(unused_mut))]
+    let mut tls12_suites = Vec::new();
+    let mut tls13_suites = Vec::new();
+    for suite in ciphers {
+        match suite {
+            SupportedCipherSuite::Tls13(s) => tls13_suites.push(s),
+            #[cfg(feature = "tls12")]
+            SupportedCipherSuite::Tls12(s) => tls12_suites.push(s),
+            _ => {}
+        }
+    }
+
     CryptoProvider {
-        cipher_suites: ciphers,
+        tls13_cipher_suites: Cow::Owned(tls13_suites),
+        tls12_cipher_suites: Cow::Owned(tls12_suites),
         #[cfg(feature = "fips")]
-        kx_groups: ALL_FIPS_KX_GROUPS.to_vec(),
+        kx_groups: Cow::Borrowed(ALL_FIPS_KX_GROUPS),
         #[cfg(not(feature = "fips"))]
-        kx_groups: ALL_KX_GROUPS.to_vec(),
+        kx_groups: Cow::Borrowed(ALL_KX_GROUPS),
         #[cfg(feature = "fips")]
         signature_verification_algorithms: verify::ALL_FIPS_ALGORITHMS,
         #[cfg(not(feature = "fips"))]
         signature_verification_algorithms: verify::ALL_ALGORITHMS,
         secure_random: &Provider,
         key_provider: &Provider,
+        ticketer_factory: &Provider,
     }
 }
 
@@ -124,8 +138,12 @@ impl rustls::crypto::SecureRandom for Provider {
         boring::rand::rand_bytes(bytes).map_err(|e| log_and_map("rand_bytes", e, GetRandomFailed))
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips")
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
     }
 }
 
@@ -133,12 +151,32 @@ impl rustls::crypto::KeyProvider for Provider {
     fn load_private_key(
         &self,
         key_der: PrivateKeyDer<'static>,
-    ) -> Result<Arc<dyn rustls::sign::SigningKey>, rustls::Error> {
-        sign::BoringPrivateKey::try_from(key_der).map(|x| Arc::new(x) as _)
+    ) -> Result<Box<dyn rustls::crypto::SigningKey>, rustls::Error> {
+        sign::BoringPrivateKey::try_from(key_der).map(|x| Box::new(x) as _)
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips")
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
+    }
+}
+
+impl rustls::crypto::TicketerFactory for Provider {
+    fn ticketer(
+        &self,
+    ) -> Result<std::sync::Arc<dyn rustls::crypto::TicketProducer>, rustls::Error> {
+        Err(rustls::Error::General("tickets not supported".into()))
+    }
+
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
     }
 }
 

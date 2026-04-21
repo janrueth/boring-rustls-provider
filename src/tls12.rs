@@ -1,4 +1,5 @@
-use rustls::{SignatureScheme, Tls12CipherSuite, crypto};
+use rustls::Tls12CipherSuite;
+use rustls::crypto::{self, CipherSuite, SignatureScheme};
 
 use crate::{aead, hash, prf};
 
@@ -24,53 +25,57 @@ const PRF_SHA384: prf::PrfTls1WithDigest = prf::PrfTls1WithDigest(boring::nid::N
 
 /// TLS 1.2 ECDHE-ECDSA with AES-128-GCM and SHA-256.
 pub static ECDHE_ECDSA_AES128_GCM_SHA256: Tls12CipherSuite = Tls12CipherSuite {
+    protocol_version: rustls::version::TLS12_VERSION,
     common: rustls::crypto::CipherSuiteCommon {
-        suite: rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+        suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
         hash_provider: hash::SHA256,
         confidentiality_limit: 1 << 23,
     },
     aead_alg: &aead::Aead::<aead::aes::Aes128>::DEFAULT,
     prf_provider: &PRF_SHA256,
-    kx: crypto::KeyExchangeAlgorithm::ECDHE,
+    kx: crypto::kx::KeyExchangeAlgorithm::ECDHE,
     sign: ALL_ECDSA_SCHEMES,
 };
 
 /// TLS 1.2 ECDHE-RSA with AES-128-GCM and SHA-256.
 pub static ECDHE_RSA_AES128_GCM_SHA256: Tls12CipherSuite = Tls12CipherSuite {
+    protocol_version: rustls::version::TLS12_VERSION,
     common: rustls::crypto::CipherSuiteCommon {
-        suite: rustls::CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        suite: CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
         hash_provider: hash::SHA256,
         confidentiality_limit: 1 << 23,
     },
     aead_alg: &aead::Aead::<aead::aes::Aes128>::DEFAULT,
     prf_provider: &PRF_SHA256,
-    kx: crypto::KeyExchangeAlgorithm::ECDHE,
+    kx: crypto::kx::KeyExchangeAlgorithm::ECDHE,
     sign: ALL_RSA_SCHEMES,
 };
 
 /// TLS 1.2 ECDHE-ECDSA with AES-256-GCM and SHA-384.
 pub static ECDHE_ECDSA_AES256_GCM_SHA384: Tls12CipherSuite = Tls12CipherSuite {
+    protocol_version: rustls::version::TLS12_VERSION,
     common: rustls::crypto::CipherSuiteCommon {
-        suite: rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+        suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
         hash_provider: hash::SHA384,
         confidentiality_limit: 1 << 23,
     },
     aead_alg: &aead::Aead::<aead::aes::Aes256>::DEFAULT,
     prf_provider: &PRF_SHA384,
-    kx: crypto::KeyExchangeAlgorithm::ECDHE,
+    kx: crypto::kx::KeyExchangeAlgorithm::ECDHE,
     sign: ALL_ECDSA_SCHEMES,
 };
 
 /// TLS 1.2 ECDHE-RSA with AES-256-GCM and SHA-384.
 pub static ECDHE_RSA_AES256_GCM_SHA384: Tls12CipherSuite = Tls12CipherSuite {
+    protocol_version: rustls::version::TLS12_VERSION,
     common: rustls::crypto::CipherSuiteCommon {
-        suite: rustls::CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        suite: CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
         hash_provider: hash::SHA384,
         confidentiality_limit: 1 << 23,
     },
     aead_alg: &aead::Aead::<aead::aes::Aes256>::DEFAULT,
     prf_provider: &PRF_SHA384,
-    kx: crypto::KeyExchangeAlgorithm::ECDHE,
+    kx: crypto::kx::KeyExchangeAlgorithm::ECDHE,
     sign: ALL_RSA_SCHEMES,
 };
 
@@ -78,14 +83,15 @@ pub static ECDHE_RSA_AES256_GCM_SHA384: Tls12CipherSuite = Tls12CipherSuite {
 ///
 /// Not available in FIPS mode.
 pub static ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: Tls12CipherSuite = Tls12CipherSuite {
+    protocol_version: rustls::version::TLS12_VERSION,
     common: rustls::crypto::CipherSuiteCommon {
-        suite: rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+        suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
         hash_provider: hash::SHA256,
         confidentiality_limit: u64::MAX,
     },
     aead_alg: &aead::Aead::<aead::chacha20::ChaCha20Poly1305>::DEFAULT,
     prf_provider: &PRF_SHA256,
-    kx: crypto::KeyExchangeAlgorithm::ECDHE,
+    kx: crypto::kx::KeyExchangeAlgorithm::ECDHE,
     sign: ALL_ECDSA_SCHEMES,
 };
 
@@ -93,13 +99,14 @@ pub static ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: Tls12CipherSuite = Tls12Ci
 ///
 /// Not available in FIPS mode.
 pub static ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: Tls12CipherSuite = Tls12CipherSuite {
+    protocol_version: rustls::version::TLS12_VERSION,
     common: rustls::crypto::CipherSuiteCommon {
-        suite: rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        suite: CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         hash_provider: hash::SHA256,
         confidentiality_limit: u64::MAX,
     },
     aead_alg: &aead::Aead::<aead::chacha20::ChaCha20Poly1305>::DEFAULT,
     prf_provider: &PRF_SHA256,
-    kx: crypto::KeyExchangeAlgorithm::ECDHE,
+    kx: crypto::kx::KeyExchangeAlgorithm::ECDHE,
     sign: ALL_RSA_SCHEMES,
 };
