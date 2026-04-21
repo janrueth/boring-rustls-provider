@@ -9,6 +9,28 @@ A [BoringSSL](https://github.com/cloudflare/boring)-based [rustls](https://githu
 
 Built on `boring` v5 and `rustls` 0.23.
 
+## Versioning
+
+Version 5 was the first release of this crate, version-matched to `boring` v5.
+Going forward, major versions track **rustls** breaking changes rather than
+`boring` versions:
+
+| `boring-rustls-provider` | `rustls` | `boring` / `boring-sys` | Branch |
+|--------------------------|----------|-------------------------|--------|
+| v5 | 0.23 | v5 | `v5` |
+| v6 | 0.24 | v5 | `main` |
+
+All versions continue to depend on `boring` v5 / `boring-sys` v5 unless those
+crates themselves introduce a breaking change.
+
+### Branch strategy
+
+- **`main`** always tracks the latest (or next) major version.
+- When work on a new major version begins, a maintenance branch (e.g., `v5`)
+  is created from `main` for the prior release series.
+- Bugfixes for older versions go to their maintenance branch and are released
+  as patch versions.
+
 ## Features
 
 No features are enabled by default. The provider ships with TLS 1.3 support
