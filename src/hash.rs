@@ -1,5 +1,6 @@
 use boring::hash::{Hasher, MessageDigest};
 use rustls::crypto::hash;
+use rustls_pki_types::FipsStatus;
 
 pub const SHA256: &dyn hash::Hash = &Hash(boring::nid::Nid::SHA256);
 pub const SHA384: &dyn hash::Hash = &Hash(boring::nid::Nid::SHA384);
@@ -19,17 +20,21 @@ impl hash::Hash for Hash {
         hasher.finish()
     }
 
-    fn algorithm(&self) -> hash::HashAlgorithm {
+    fn algorithm(&self) -> rustls::crypto::HashAlgorithm {
         match self.0 {
-            boring::nid::Nid::SHA256 => hash::HashAlgorithm::SHA256,
-            boring::nid::Nid::SHA384 => hash::HashAlgorithm::SHA384,
-            boring::nid::Nid::SHA512 => hash::HashAlgorithm::SHA512,
+            boring::nid::Nid::SHA256 => rustls::crypto::HashAlgorithm::SHA256,
+            boring::nid::Nid::SHA384 => rustls::crypto::HashAlgorithm::SHA384,
+            boring::nid::Nid::SHA512 => rustls::crypto::HashAlgorithm::SHA512,
             _ => unreachable!("hash::Hash is only instantiated with SHA-2 digests"),
         }
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips")
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
     }
 
     fn output_len(&self) -> usize {

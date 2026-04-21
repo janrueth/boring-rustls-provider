@@ -2,7 +2,7 @@ use std::ptr;
 
 use boring::error::ErrorStack;
 use foreign_types::ForeignType;
-use rustls::{SignatureScheme, pki_types::alg_id};
+use rustls::{crypto::SignatureScheme, pki_types::alg_id};
 use rustls_pki_types::{InvalidSignature, SignatureVerificationAlgorithm};
 
 use crate::helper::{cvt_p, log_and_map};

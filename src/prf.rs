@@ -1,5 +1,6 @@
 use boring::error::ErrorStack;
 use rustls::crypto;
+use rustls_pki_types::FipsStatus;
 
 use crate::helper::log_and_map;
 
@@ -9,7 +10,7 @@ impl crypto::tls12::Prf for PrfTls1WithDigest {
     fn for_key_exchange(
         &self,
         output: &mut [u8; 48],
-        kx: Box<dyn crypto::ActiveKeyExchange>,
+        kx: Box<dyn crypto::kx::ActiveKeyExchange>,
         peer_pub_key: &[u8],
         label: &[u8],
         seed: &[u8],
@@ -23,13 +24,32 @@ impl crypto::tls12::Prf for PrfTls1WithDigest {
             .map_err(|e| log_and_map("prf", e, rustls::Error::General("failed on prf".into())))
     }
 
-    fn for_secret(&self, output: &mut [u8], secret: &[u8], label: &[u8], seed: &[u8]) {
-        let digest = boring::hash::MessageDigest::from_nid(self.0).expect("failed getting digest");
-        prf(digest, output, secret, label, seed).expect("failed calculating prf")
+    fn new_secret(&self, master_secret: &[u8; 48]) -> Box<dyn crypto::tls12::PrfSecret> {
+        Box::new(PrfSecret {
+            nid: self.0,
+            master_secret: *master_secret,
+        })
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips")
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
+    }
+}
+
+struct PrfSecret {
+    nid: boring::nid::Nid,
+    master_secret: [u8; 48],
+}
+
+impl crypto::tls12::PrfSecret for PrfSecret {
+    fn prf(&self, output: &mut [u8], label: &[u8], seed: &[u8]) {
+        let digest =
+            boring::hash::MessageDigest::from_nid(self.nid).expect("failed getting digest");
+        prf(digest, output, &self.master_secret, label, seed).expect("failed calculating prf")
     }
 }
 

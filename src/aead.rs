@@ -3,10 +3,14 @@ use std::marker::PhantomData;
 use aead::{AeadCore, AeadInPlace, Buffer, Nonce, Tag};
 use boring::aead::{AeadCtx, Algorithm};
 use boring::error::ErrorStack;
+use rustls::ConnectionTrafficSecrets;
 #[cfg(feature = "tls12")]
 use rustls::crypto::cipher::make_tls12_aad;
-use rustls::crypto::cipher::{self, BorrowedPayload, Iv, PrefixedPayload, make_tls13_aad};
-use rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
+use rustls::crypto::cipher::{
+    self, EncodedMessage, InboundOpaque, Iv, OutboundOpaque, OutboundPlain, make_tls13_aad,
+};
+use rustls::enums::{ContentType, ProtocolVersion};
+use rustls_pki_types::FipsStatus;
 
 use crate::helper::log_and_map;
 
@@ -90,7 +94,7 @@ impl<T: BoringAead> BoringAeadCrypter<T> {
 
         let cipher = <T as BoringCipher>::new_cipher();
 
-        if cipher.nonce_len() != rustls::crypto::cipher::Nonce::new(&iv, 0).0.len() {
+        if cipher.nonce_len() != rustls::crypto::cipher::Nonce::new(&iv, 0).len() {
             return Err(ErrorStack::get());
         }
 
@@ -141,9 +145,9 @@ where
 {
     fn encrypt(
         &mut self,
-        msg: cipher::OutboundPlainMessage,
+        msg: EncodedMessage<OutboundPlain<'_>>,
         seq: u64,
-    ) -> Result<cipher::OutboundOpaqueMessage, rustls::Error> {
+    ) -> Result<EncodedMessage<OutboundOpaque>, rustls::Error> {
         let nonce = cipher::Nonce::new(&self.iv, seq);
         match self.tls_version {
             #[cfg(feature = "tls12")]
@@ -151,43 +155,40 @@ where
                 let fixed_iv_len = <T as BoringCipher>::FIXED_IV_LEN;
                 let explicit_nonce_len = <T as BoringCipher>::EXPLICIT_NONCE_LEN;
 
-                let total_len = self.encrypted_payload_len(msg.payload.len());
+                let payload_len = msg.payload.len();
+                let total_len = self.encrypted_payload_len(payload_len);
 
-                let mut full_payload = PrefixedPayload::with_capacity(total_len);
-                full_payload.extend_from_slice(&nonce.0.as_ref()[fixed_iv_len..]);
+                let mut full_payload = OutboundOpaque::with_capacity(total_len);
+                full_payload.extend_from_slice(&nonce.as_ref()[fixed_iv_len..]);
                 full_payload.extend_from_chunks(&msg.payload);
                 full_payload.extend_from_slice(&vec![0u8; self.max_overhead]);
 
                 let (_, payload) = full_payload.as_mut().split_at_mut(explicit_nonce_len);
-                let (payload, tag) = payload.split_at_mut(msg.payload.len());
-                let aad = cipher::make_tls12_aad(seq, msg.typ, msg.version, msg.payload.len());
+                let (payload, tag) = payload.split_at_mut(payload_len);
+                let aad = cipher::make_tls12_aad(seq, msg.typ, msg.version, payload_len);
                 self.ctx
-                    .seal_in_place(&nonce.0, payload, tag, &aad)
+                    .seal_in_place(nonce.as_ref(), payload, tag, &aad)
                     .map_err(|_| rustls::Error::EncryptError)?;
 
-                Ok(cipher::OutboundOpaqueMessage::new(
-                    msg.typ,
-                    msg.version,
-                    full_payload,
-                ))
+                Ok(EncodedMessage::new(msg.typ, msg.version, full_payload))
             }
 
             ProtocolVersion::TLSv1_3 => {
                 let total_len = self.encrypted_payload_len(msg.payload.len());
 
-                let mut payload = PrefixedPayload::with_capacity(total_len);
+                let mut payload = OutboundOpaque::with_capacity(total_len);
                 payload.extend_from_chunks(&msg.payload);
                 payload.extend_from_slice(&msg.typ.to_array());
 
                 let aad = cipher::make_tls13_aad(total_len);
                 self.encrypt_in_place(
-                    Nonce::<T>::from_slice(&nonce.0),
+                    Nonce::<T>::from_slice(nonce.as_ref()),
                     &aad,
                     &mut EncryptBufferAdapter(&mut payload),
                 )
                 .map_err(|_| rustls::Error::EncryptError)
                 .map(|_| {
-                    cipher::OutboundOpaqueMessage::new(
+                    EncodedMessage::new(
                         ContentType::ApplicationData,
                         ProtocolVersion::TLSv1_2,
                         payload,
@@ -217,9 +218,9 @@ where
 {
     fn decrypt<'a>(
         &mut self,
-        mut m: cipher::InboundOpaqueMessage<'a>,
+        mut m: EncodedMessage<InboundOpaque<'a>>,
         seq: u64,
-    ) -> Result<cipher::InboundPlainMessage<'a>, rustls::Error> {
+    ) -> Result<EncodedMessage<&'a [u8]>, rustls::Error> {
         match self.tls_version {
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => {
@@ -251,7 +252,10 @@ where
                     }
 
                     // grab the IV by constructing a nonce, this is just an xor
-                    let iv = cipher::Nonce::new(&self.iv, seq).0;
+                    let nonce_val = cipher::Nonce::new(&self.iv, seq);
+                    let iv: [u8; 12] = nonce_val
+                        .to_array()
+                        .map_err(|_| rustls::Error::DecryptError)?;
                     let mut nonce = [0u8; 12];
                     nonce[..fixed_iv_len].copy_from_slice(&iv[..fixed_iv_len]);
                     nonce[fixed_iv_len..].copy_from_slice(explicit_nonce);
@@ -278,7 +282,7 @@ where
                 let nonce = cipher::Nonce::new(&self.iv, seq);
                 let aad = make_tls13_aad(m.payload.len());
                 self.decrypt_in_place(
-                    Nonce::<T>::from_slice(&nonce.0),
+                    Nonce::<T>::from_slice(nonce.as_ref()),
                     &aad,
                     &mut DecryptBufferAdapter(&mut m.payload),
                 )
@@ -299,11 +303,16 @@ where
         packet_number: u64,
         header: &[u8],
         payload: &mut [u8],
+        path_id: Option<u32>,
     ) -> Result<rustls::quic::Tag, rustls::Error> {
         let associated_data = header;
-        let nonce = cipher::Nonce::new(&self.iv, packet_number);
+        let nonce = cipher::Nonce::quic(path_id, &self.iv, packet_number);
         let tag = self
-            .encrypt_in_place_detached(Nonce::<T>::from_slice(&nonce.0), associated_data, payload)
+            .encrypt_in_place_detached(
+                Nonce::<T>::from_slice(nonce.as_ref()),
+                associated_data,
+                payload,
+            )
             .map_err(|_| rustls::Error::EncryptError)?;
 
         Ok(rustls::quic::Tag::from(tag.as_ref()))
@@ -314,9 +323,10 @@ where
         packet_number: u64,
         header: &[u8],
         payload: &'a mut [u8],
+        path_id: Option<u32>,
     ) -> Result<&'a [u8], rustls::Error> {
         let associated_data = header;
-        let nonce = cipher::Nonce::new(&self.iv, packet_number);
+        let nonce = cipher::Nonce::quic(path_id, &self.iv, packet_number);
 
         if payload.len() < self.max_overhead {
             return Err(rustls::Error::DecryptError);
@@ -325,7 +335,7 @@ where
         let (buffer, tag) = payload.split_at_mut(payload.len() - self.max_overhead);
 
         self.ctx
-            .open_in_place(&nonce.0, buffer, tag, associated_data)
+            .open_in_place(nonce.as_ref(), buffer, tag, associated_data)
             .map_err(|_| rustls::Error::DecryptError)?;
 
         Ok(buffer)
@@ -349,9 +359,9 @@ struct InvalidMessageEncrypter;
 impl cipher::MessageEncrypter for InvalidMessageEncrypter {
     fn encrypt(
         &mut self,
-        _msg: cipher::OutboundPlainMessage<'_>,
+        _msg: EncodedMessage<OutboundPlain<'_>>,
         _seq: u64,
-    ) -> Result<cipher::OutboundOpaqueMessage, rustls::Error> {
+    ) -> Result<EncodedMessage<OutboundOpaque>, rustls::Error> {
         Err(rustls::Error::EncryptError)
     }
 
@@ -365,9 +375,9 @@ struct InvalidMessageDecrypter;
 impl cipher::MessageDecrypter for InvalidMessageDecrypter {
     fn decrypt<'a>(
         &mut self,
-        _msg: cipher::InboundOpaqueMessage<'a>,
+        _msg: EncodedMessage<InboundOpaque<'a>>,
         _seq: u64,
-    ) -> Result<cipher::InboundPlainMessage<'a>, rustls::Error> {
+    ) -> Result<EncodedMessage<&'a [u8]>, rustls::Error> {
         Err(rustls::Error::DecryptError)
     }
 }
@@ -380,6 +390,7 @@ impl<T: BoringCipher + QuicCipher> rustls::quic::PacketKey for InvalidPacketKey<
         _packet_number: u64,
         _header: &[u8],
         _payload: &mut [u8],
+        _path_id: Option<u32>,
     ) -> Result<rustls::quic::Tag, rustls::Error> {
         Err(rustls::Error::EncryptError)
     }
@@ -389,6 +400,7 @@ impl<T: BoringCipher + QuicCipher> rustls::quic::PacketKey for InvalidPacketKey<
         _packet_number: u64,
         _header: &[u8],
         _payload: &'a mut [u8],
+        _path_id: Option<u32>,
     ) -> Result<&'a [u8], rustls::Error> {
         Err(rustls::Error::DecryptError)
     }
@@ -453,8 +465,12 @@ impl<T: BoringAead + 'static> cipher::Tls13AeadAlgorithm for Aead<T> {
         Ok(<T as BoringCipher>::extract_keys(key, iv))
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
     }
 }
 
@@ -469,11 +485,14 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
         let mut full_iv = Vec::with_capacity(iv.len() + extra.len());
         full_iv.extend_from_slice(iv);
         full_iv.extend_from_slice(extra);
-        match BoringAeadCrypter::<T>::new(
-            Iv::copy(&full_iv),
-            key.as_ref(),
-            ProtocolVersion::TLSv1_2,
-        ) {
+        let iv = match Iv::new(&full_iv) {
+            Ok(iv) => iv,
+            Err(err) => {
+                log_and_map("Tls12AeadAlgorithm::encrypter Iv::new", err, ());
+                return Box::new(InvalidMessageEncrypter);
+            }
+        };
+        match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_2) {
             Ok(crypter) => Box::new(crypter),
             Err(err) => {
                 log_and_map(
@@ -490,11 +509,14 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
         let mut pseudo_iv = Vec::with_capacity(iv.len() + <T as BoringCipher>::EXPLICIT_NONCE_LEN);
         pseudo_iv.extend_from_slice(iv);
         pseudo_iv.extend_from_slice(&vec![0u8; <T as BoringCipher>::EXPLICIT_NONCE_LEN]);
-        match BoringAeadCrypter::<T>::new(
-            Iv::copy(&pseudo_iv),
-            key.as_ref(),
-            ProtocolVersion::TLSv1_2,
-        ) {
+        let iv = match Iv::new(&pseudo_iv) {
+            Ok(iv) => iv,
+            Err(err) => {
+                log_and_map("Tls12AeadAlgorithm::decrypter Iv::new", err, ());
+                return Box::new(InvalidMessageDecrypter);
+            }
+        };
+        match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_2) {
             Ok(crypter) => Box::new(crypter),
             Err(err) => {
                 log_and_map(
@@ -539,11 +561,16 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
             nonce[fixed_iv_len..].copy_from_slice(explicit);
             nonce
         };
-        Ok(<T as BoringCipher>::extract_keys(key, Iv::copy(&nonce)))
+        let iv = Iv::new(&nonce).map_err(|_| cipher::UnsupportedOperationError)?;
+        Ok(<T as BoringCipher>::extract_keys(key, iv))
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
     }
 }
 
@@ -658,12 +685,16 @@ where
         <T as QuicCipher>::KEY_SIZE
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED
+    fn fips(&self) -> FipsStatus {
+        if cfg!(feature = "fips") && <T as BoringCipher>::FIPS_APPROVED {
+            FipsStatus::Pending
+        } else {
+            FipsStatus::Unvalidated
+        }
     }
 }
 
-struct DecryptBufferAdapter<'a, 'p>(&'a mut BorrowedPayload<'p>);
+struct DecryptBufferAdapter<'a, 'p>(&'a mut InboundOpaque<'p>);
 
 impl AsRef<[u8]> for DecryptBufferAdapter<'_, '_> {
     fn as_ref(&self) -> &[u8] {
@@ -687,7 +718,7 @@ impl Buffer for DecryptBufferAdapter<'_, '_> {
     }
 }
 
-struct EncryptBufferAdapter<'a>(&'a mut PrefixedPayload);
+struct EncryptBufferAdapter<'a>(&'a mut OutboundOpaque);
 
 impl AsRef<[u8]> for EncryptBufferAdapter<'_> {
     fn as_ref(&self) -> &[u8] {
@@ -715,12 +746,11 @@ impl Buffer for EncryptBufferAdapter<'_> {
 #[cfg(test)]
 mod tests {
     use hex_literal::hex;
-    use rustls::ContentType;
-    use rustls::ProtocolVersion;
     use rustls::crypto::cipher::Tls13AeadAlgorithm;
-    use rustls::crypto::cipher::{AeadKey, InboundOpaqueMessage, Iv};
+    use rustls::crypto::cipher::{AeadKey, EncodedMessage, InboundOpaque, Iv};
     #[cfg(feature = "tls12")]
     use rustls::crypto::cipher::{MessageDecrypter, Tls12AeadAlgorithm};
+    use rustls::enums::{ContentType, ProtocolVersion};
     use rustls::quic::Algorithm as QuicAlgorithm;
     use rustls::quic::HeaderProtectionKey;
 
@@ -786,10 +816,10 @@ mod tests {
             Iv::from([0u8; 12]),
         );
         let mut payload = vec![0u8; 8];
-        let msg = InboundOpaqueMessage::new(
+        let msg = EncodedMessage::new(
             ContentType::ApplicationData,
             ProtocolVersion::TLSv1_3,
-            &mut payload,
+            InboundOpaque(&mut payload),
         );
 
         let err = decrypter
@@ -805,11 +835,11 @@ mod tests {
             .packet_key(AeadKey::from([0u8; 32]), Iv::from([0u8; 12]));
         let mut payload = [0u8; 0];
 
-        let enc_err = packet_key.encrypt_in_place(0, &[], &mut payload);
+        let enc_err = packet_key.encrypt_in_place(0, &[], &mut payload, None);
         assert!(matches!(enc_err, Err(rustls::Error::EncryptError)));
 
         let dec_err = packet_key
-            .decrypt_in_place(0, &[], &mut payload)
+            .decrypt_in_place(0, &[], &mut payload, None)
             .expect_err("invalid constructor inputs should produce decrypt errors");
         assert!(matches!(dec_err, rustls::Error::DecryptError));
     }
@@ -823,10 +853,10 @@ mod tests {
             &[0u8; 4],
         );
         let mut payload = vec![0u8; 8];
-        let msg = InboundOpaqueMessage::new(
+        let msg = EncodedMessage::new(
             ContentType::ApplicationData,
             ProtocolVersion::TLSv1_2,
-            &mut payload,
+            InboundOpaque(&mut payload),
         );
 
         let err = decrypter
@@ -857,14 +887,14 @@ mod tests {
         let mut payload = expected_cleartext;
 
         let tag = protector
-            .encrypt_in_place(packet_number, &unprotected_header, &mut payload)
+            .encrypt_in_place(packet_number, &unprotected_header, &mut payload, None)
             .unwrap();
 
         let mut ciphertext = [&payload, tag.as_ref()].concat();
         assert_eq!(ciphertext, expected_ciphertext);
 
         let cleartext = protector
-            .decrypt_in_place(packet_number, &unprotected_header, &mut ciphertext)
+            .decrypt_in_place(packet_number, &unprotected_header, &mut ciphertext, None)
             .unwrap();
 
         assert_eq!(cleartext, expected_cleartext);
@@ -883,7 +913,7 @@ mod tests {
 
         let mut payload = [0u8; <ChaCha20Poly1305 as BoringCipher>::TAG_LEN - 1];
         let err = crypter
-            .decrypt_in_place(0, &[], &mut payload)
+            .decrypt_in_place(0, &[], &mut payload, None)
             .expect_err("truncated QUIC payload must fail decryption");
 
         assert!(matches!(err, rustls::Error::DecryptError));
@@ -900,10 +930,10 @@ mod tests {
         let min_payload_len =
             <Aes128 as BoringCipher>::EXPLICIT_NONCE_LEN + <Aes128 as BoringCipher>::TAG_LEN;
         let mut payload = vec![0u8; min_payload_len - 1];
-        let msg = InboundOpaqueMessage::new(
+        let msg = EncodedMessage::new(
             ContentType::ApplicationData,
             ProtocolVersion::TLSv1_2,
-            &mut payload,
+            InboundOpaque(&mut payload),
         );
 
         let err = decrypter

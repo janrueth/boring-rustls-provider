@@ -5,7 +5,8 @@ use boring::{
     pkey::Id,
     pkey::{PKey, PKeyRef, Private},
 };
-use rustls::crypto;
+use rustls::crypto::kx::{ActiveKeyExchange, NamedGroup, SharedSecret};
+use rustls::error::PeerMisbehaved;
 
 use crate::helper::log_and_map;
 
@@ -114,18 +115,15 @@ impl KeyExchange {
     }
 }
 
-impl crypto::ActiveKeyExchange for KeyExchange {
-    fn complete(
-        self: Box<Self>,
-        peer_pub_key: &[u8],
-    ) -> Result<crypto::SharedSecret, rustls::Error> {
+impl ActiveKeyExchange for KeyExchange {
+    fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, rustls::Error> {
         self.diffie_hellman(peer_pub_key)
-            .map(crypto::SharedSecret::from)
+            .map(SharedSecret::from)
             .map_err(|e| {
                 log_and_map(
                     "ex::KeyExchange::diffie_hellman",
                     e,
-                    rustls::Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare),
+                    rustls::Error::PeerMisbehaved(PeerMisbehaved::InvalidKeyShare),
                 )
             })
     }
@@ -134,12 +132,12 @@ impl crypto::ActiveKeyExchange for KeyExchange {
         &self.pub_bytes
     }
 
-    fn group(&self) -> rustls::NamedGroup {
+    fn group(&self) -> NamedGroup {
         match self.key_type {
             #[cfg(not(feature = "fips"))]
-            DhKeyType::ED(boring_sys::NID_X25519) => rustls::NamedGroup::X25519,
-            DhKeyType::EC((_, boring_sys::NID_X9_62_prime256v1)) => rustls::NamedGroup::secp256r1,
-            DhKeyType::EC((_, boring_sys::NID_secp384r1)) => rustls::NamedGroup::secp384r1,
+            DhKeyType::ED(boring_sys::NID_X25519) => NamedGroup::X25519,
+            DhKeyType::EC((_, boring_sys::NID_X9_62_prime256v1)) => NamedGroup::secp256r1,
+            DhKeyType::EC((_, boring_sys::NID_secp384r1)) => NamedGroup::secp384r1,
             _ => unreachable!("unsupported key type"),
         }
     }
@@ -148,7 +146,7 @@ impl crypto::ActiveKeyExchange for KeyExchange {
 #[cfg(test)]
 mod tests {
     use super::KeyExchange;
-    use rustls::crypto::ActiveKeyExchange;
+    use rustls::crypto::kx::ActiveKeyExchange;
 
     #[test]
     fn test_derive_ec() {

@@ -28,8 +28,12 @@ impl crypto::hmac::Hmac for BoringHmac {
             .size()
     }
 
-    fn fips(&self) -> bool {
-        cfg!(feature = "fips")
+    fn fips(&self) -> rustls_pki_types::FipsStatus {
+        if cfg!(feature = "fips") {
+            rustls_pki_types::FipsStatus::Pending
+        } else {
+            rustls_pki_types::FipsStatus::Unvalidated
+        }
     }
 }
 
