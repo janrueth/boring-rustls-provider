@@ -1,6 +1,6 @@
 [package]
 name = "boring-rustls-provider"
-version = "5.0.0"
+version = "5.0.1"
 authors = ["Jan Rüth <boring-rustls-provider@djiehmail.com>"]
 edition = "2024"
 license = "MIT"
