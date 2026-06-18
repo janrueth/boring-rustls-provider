@@ -47,7 +47,7 @@ boring = { version = ">=5.1, <6", default-features = false }
 boring-sys = { version = ">=5.1, <6", default-features = false }
 foreign-types = "0.5"
 log = { version = "0.4.4", optional = true }
-rustls = { version = "0.23", default-features = false }
+rustls = { version = ">=0.23.40, <0.24", default-features = false }
 rustls-pki-types = { version = "1" }
 spki = "0.7"
 zeroize = "1"
