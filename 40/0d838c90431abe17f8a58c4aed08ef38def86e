@@ -1,0 +1,19 @@
+src/aead.rs
+  s_095c26907b1090::t_9005a702c822c9 1,7,15-16,27-32,51-61,76,87-90,106-111,130-139,141-146,177,193,196-206,276-277,291-303,322-330,332,350-352,492-495,509-512,529,539-540,548-561,688-690,702-759,761-771
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "400d838c90431abe17f8a58c4aed08ef38def86e",
+  "prompts": {},
+  "sessions": {
+    "s_095c26907b1090": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ea0fd0397ffeazIa5kPQqMPQoy",
+        "model": "unknown"
+      },
+      "human_author": "Jan Rüth <1324490+janrueth@users.noreply.github.com>"
+    }
+  }
+}
