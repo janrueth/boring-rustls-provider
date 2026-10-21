@@ -6,7 +6,7 @@ use rustls::ConnectionTrafficSecrets;
 #[cfg(feature = "tls12")]
 use rustls::crypto::cipher::make_tls12_aad;
 use rustls::crypto::cipher::{
-    self, EncodedMessage, InboundOpaque, Iv, OutboundOpaque, OutboundPlain, make_tls13_aad,
+    self, EncryptBuffer, InboundOpaque, Iv, OutboundPlain, Record, make_tls13_aad,
 };
 use rustls::enums::{ContentType, ProtocolVersion};
 use rustls_pki_types::FipsStatus;
@@ -151,15 +151,16 @@ impl<T: BoringAead> BoringQuicPacketKey<T> {
     }
 }
 
-impl<T> cipher::MessageEncrypter for BoringAeadCrypter<T>
+impl<T> cipher::RecordEncrypter for BoringAeadCrypter<T>
 where
     T: BoringAead,
 {
-    fn encrypt(
+    fn encrypt<'a>(
         &mut self,
-        msg: EncodedMessage<OutboundPlain<'_>>,
+        record: Record<OutboundPlain<'_>>,
         seq: u64,
-    ) -> Result<EncodedMessage<OutboundOpaque>, rustls::Error> {
+        out: &'a mut [u8],
+    ) -> Result<Record<&'a [u8]>, rustls::Error> {
         let nonce = cipher::Nonce::new(&self.iv, seq);
         match self.tls_version {
             #[cfg(feature = "tls12")]
@@ -167,43 +168,52 @@ where
                 let fixed_iv_len = <T as BoringCipher>::FIXED_IV_LEN;
                 let explicit_nonce_len = <T as BoringCipher>::EXPLICIT_NONCE_LEN;
 
-                let payload_len = msg.payload.len();
+                let payload_len = record.payload.len();
                 let total_len = self.encrypted_payload_len(payload_len);
 
-                let mut full_payload = OutboundOpaque::with_capacity(total_len);
+                let mut full_payload = EncryptBuffer::new(out, total_len)?;
                 full_payload.extend_from_slice(&nonce.as_ref()[fixed_iv_len..]);
-                full_payload.extend_from_chunks(&msg.payload);
+                full_payload.extend_from_chunks(&record.payload);
                 full_payload.extend_from_slice(&vec![0u8; self.max_overhead]);
 
                 let (_, payload) = full_payload.as_mut().split_at_mut(explicit_nonce_len);
                 let (payload, tag) = payload.split_at_mut(payload_len);
-                let aad = cipher::make_tls12_aad(seq, msg.typ, msg.version, payload_len);
+                let aad =
+                    cipher::make_tls12_aad(seq, record.typ, record.version.encode(), payload_len);
                 self.ctx
                     .seal_in_place_mut(nonce.as_ref(), payload, tag, &aad)
                     .map_err(|_| rustls::Error::EncryptError)?;
 
-                Ok(EncodedMessage::new(msg.typ, msg.version, full_payload))
+                Ok(Record::new(
+                    record.typ,
+                    record.version,
+                    full_payload.into_written(),
+                ))
             }
 
             ProtocolVersion::TLSv1_3 => {
-                let total_len = self.encrypted_payload_len(msg.payload.len());
+                let total_len = self.encrypted_payload_len(record.payload.len());
 
-                let mut payload = OutboundOpaque::with_capacity(total_len);
-                payload.extend_from_chunks(&msg.payload);
-                payload.extend_from_slice(&msg.typ.to_array());
+                let mut payload = EncryptBuffer::new(out, total_len)?;
+                payload.extend_from_chunks(&record.payload);
+                payload.extend_from_slice(&record.typ.to_array());
                 payload.extend_from_slice(&vec![0u8; self.max_overhead]);
 
-                let aad = cipher::make_tls13_aad(total_len);
+                let aad = cipher::make_tls13_aad(
+                    ContentType::ApplicationData,
+                    record.version.encode(),
+                    total_len,
+                );
                 let (plaintext, tag) = payload.as_mut().split_at_mut(total_len - self.max_overhead);
                 self.ctx
                     .seal_in_place_mut(nonce.as_ref(), plaintext, tag, &aad)
                     .map_err(|e| {
                         log_and_map("seal_in_place_mut", e, rustls::Error::EncryptError)
                     })?;
-                Ok(EncodedMessage::new(
+                Ok(Record::new(
                     ContentType::ApplicationData,
-                    ProtocolVersion::TLSv1_2,
-                    payload,
+                    record.version,
+                    payload.into_written(),
                 ))
             }
             _ => Err(rustls::Error::EncryptError),
@@ -223,15 +233,15 @@ where
     }
 }
 
-impl<T> cipher::MessageDecrypter for BoringAeadCrypter<T>
+impl<T> cipher::RecordDecrypter for BoringAeadCrypter<T>
 where
     T: BoringAead,
 {
     fn decrypt<'a>(
         &mut self,
-        mut m: EncodedMessage<InboundOpaque<'a>>,
+        mut record: Record<InboundOpaque<'a>>,
         seq: u64,
-    ) -> Result<EncodedMessage<&'a [u8]>, rustls::Error> {
+    ) -> Result<Record<&'a [u8]>, rustls::Error> {
         match self.tls_version {
             #[cfg(feature = "tls12")]
             ProtocolVersion::TLSv1_2 => {
@@ -241,16 +251,21 @@ where
                     .checked_add(tag_len)
                     .ok_or(rustls::Error::DecryptError)?;
 
-                if m.payload.len() < min_payload_len {
+                if record.payload.len() < min_payload_len {
                     return Err(rustls::Error::DecryptError);
                 }
 
                 // payload is: [nonce] | [ciphertext] | [auth tag]
-                let actual_payload_length = m.payload.len() - tag_len - explicit_nonce_len;
+                let actual_payload_length = record.payload.len() - tag_len - explicit_nonce_len;
 
-                let aad = make_tls12_aad(seq, m.typ, m.version, actual_payload_length);
+                let aad = make_tls12_aad(
+                    seq,
+                    record.typ,
+                    record.version.encode(),
+                    actual_payload_length,
+                );
 
-                let payload = &mut m.payload;
+                let payload = &mut record.payload;
 
                 // get the nonce
                 let (explicit_nonce, payload) = payload.split_at_mut(explicit_nonce_len);
@@ -281,30 +296,30 @@ where
                     .map_err(|e| log_and_map("open_in_place_mut", e, rustls::Error::DecryptError))
                     .map(|_| {
                         // rotate the nonce to the end
-                        m.payload.rotate_left(explicit_nonce_len);
+                        record.payload.rotate_left(explicit_nonce_len);
 
                         // truncate buffer to the actual payload
-                        m.payload.truncate(actual_payload_length);
+                        record.payload.truncate(actual_payload_length);
 
-                        m.into_plain_message()
+                        record.into_plain_record()
                     })
             }
             ProtocolVersion::TLSv1_3 => {
                 let nonce = cipher::Nonce::new(&self.iv, seq);
-                let aad = make_tls13_aad(m.payload.len());
-                if m.payload.len() < self.max_overhead {
+                let aad = make_tls13_aad(record.typ, record.version.encode(), record.payload.len());
+                if record.payload.len() < self.max_overhead {
                     return Err(rustls::Error::DecryptError);
                 }
 
-                let plaintext_len = m.payload.len() - self.max_overhead;
-                let (payload, tag) = m.payload.split_at_mut(plaintext_len);
+                let plaintext_len = record.payload.len() - self.max_overhead;
+                let (payload, tag) = record.payload.split_at_mut(plaintext_len);
                 self.ctx
                     .open_in_place_mut(nonce.as_ref(), payload, tag, &aad)
                     .map_err(|e| {
                         log_and_map("open_in_place_mut", e, rustls::Error::DecryptError)
                     })?;
-                m.payload.truncate(plaintext_len);
-                m.into_tls13_unpadded_message()
+                record.payload.truncate(plaintext_len);
+                record.into_tls13_unpadded_record()
             }
             _ => Err(rustls::Error::DecryptError),
         }
@@ -373,14 +388,15 @@ where
     }
 }
 
-struct InvalidMessageEncrypter;
+struct InvalidRecordEncrypter;
 
-impl cipher::MessageEncrypter for InvalidMessageEncrypter {
-    fn encrypt(
+impl cipher::RecordEncrypter for InvalidRecordEncrypter {
+    fn encrypt<'a>(
         &mut self,
-        _msg: EncodedMessage<OutboundPlain<'_>>,
+        _record: Record<OutboundPlain<'_>>,
         _seq: u64,
-    ) -> Result<EncodedMessage<OutboundOpaque>, rustls::Error> {
+        _out: &'a mut [u8],
+    ) -> Result<Record<&'a [u8]>, rustls::Error> {
         Err(rustls::Error::EncryptError)
     }
 
@@ -389,14 +405,14 @@ impl cipher::MessageEncrypter for InvalidMessageEncrypter {
     }
 }
 
-struct InvalidMessageDecrypter;
+struct InvalidRecordDecrypter;
 
-impl cipher::MessageDecrypter for InvalidMessageDecrypter {
+impl cipher::RecordDecrypter for InvalidRecordDecrypter {
     fn decrypt<'a>(
         &mut self,
-        _msg: EncodedMessage<InboundOpaque<'a>>,
+        _record: Record<InboundOpaque<'a>>,
         _seq: u64,
-    ) -> Result<EncodedMessage<&'a [u8]>, rustls::Error> {
+    ) -> Result<Record<&'a [u8]>, rustls::Error> {
         Err(rustls::Error::DecryptError)
     }
 }
@@ -444,7 +460,7 @@ impl<T> Aead<T> {
 }
 
 impl<T: BoringAead + 'static> cipher::Tls13AeadAlgorithm for Aead<T> {
-    fn encrypter(&self, key: cipher::AeadKey, iv: cipher::Iv) -> Box<dyn cipher::MessageEncrypter> {
+    fn encrypter(&self, key: cipher::AeadKey, iv: cipher::Iv) -> Box<dyn cipher::RecordEncrypter> {
         match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3) {
             Ok(crypter) => Box::new(crypter),
             Err(err) => {
@@ -453,12 +469,12 @@ impl<T: BoringAead + 'static> cipher::Tls13AeadAlgorithm for Aead<T> {
                     err,
                     (),
                 );
-                Box::new(InvalidMessageEncrypter)
+                Box::new(InvalidRecordEncrypter)
             }
         }
     }
 
-    fn decrypter(&self, key: cipher::AeadKey, iv: cipher::Iv) -> Box<dyn cipher::MessageDecrypter> {
+    fn decrypter(&self, key: cipher::AeadKey, iv: cipher::Iv) -> Box<dyn cipher::RecordDecrypter> {
         match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_3) {
             Ok(crypter) => Box::new(crypter),
             Err(err) => {
@@ -467,7 +483,7 @@ impl<T: BoringAead + 'static> cipher::Tls13AeadAlgorithm for Aead<T> {
                     err,
                     (),
                 );
-                Box::new(InvalidMessageDecrypter)
+                Box::new(InvalidRecordDecrypter)
             }
         }
     }
@@ -500,9 +516,9 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
         key: cipher::AeadKey,
         iv: &[u8],
         extra: &[u8],
-    ) -> Box<dyn cipher::MessageEncrypter> {
+    ) -> Box<dyn cipher::RecordEncrypter> {
         let Some(iv) = tls12_iv::<T>(iv, extra) else {
-            return Box::new(InvalidMessageEncrypter);
+            return Box::new(InvalidRecordEncrypter);
         };
         match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_2) {
             Ok(crypter) => Box::new(crypter),
@@ -512,14 +528,14 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
                     err,
                     (),
                 );
-                Box::new(InvalidMessageEncrypter)
+                Box::new(InvalidRecordEncrypter)
             }
         }
     }
 
-    fn decrypter(&self, key: cipher::AeadKey, iv: &[u8]) -> Box<dyn cipher::MessageDecrypter> {
+    fn decrypter(&self, key: cipher::AeadKey, iv: &[u8]) -> Box<dyn cipher::RecordDecrypter> {
         let Some(iv) = tls12_iv::<T>(iv, &[]) else {
-            return Box::new(InvalidMessageDecrypter);
+            return Box::new(InvalidRecordDecrypter);
         };
         match BoringAeadCrypter::<T>::new(iv, key.as_ref(), ProtocolVersion::TLSv1_2) {
             Ok(crypter) => Box::new(crypter),
@@ -529,7 +545,7 @@ impl<T: BoringAead + 'static> cipher::Tls12AeadAlgorithm for Aead<T> {
                     err,
                     (),
                 );
-                Box::new(InvalidMessageDecrypter)
+                Box::new(InvalidRecordDecrypter)
             }
         }
     }
@@ -703,11 +719,11 @@ where
 mod tests {
     use hex_literal::hex;
     use rustls::crypto::cipher::{
-        AeadKey, EncodedMessage, InboundOpaque, Iv, MessageEncrypter, OutboundPlain,
+        AeadKey, EncodableVersion, InboundOpaque, Iv, OutboundPlain, Record, RecordEncrypter,
         Tls13AeadAlgorithm,
     };
     #[cfg(feature = "tls12")]
-    use rustls::crypto::cipher::{MessageDecrypter, Tls12AeadAlgorithm};
+    use rustls::crypto::cipher::{RecordDecrypter, Tls12AeadAlgorithm};
     use rustls::enums::{ContentType, ProtocolVersion};
     use rustls::quic::Algorithm as QuicAlgorithm;
     use rustls::quic::HeaderProtectionKey;
@@ -718,15 +734,23 @@ mod tests {
     use super::aes::Aes128;
     use super::{BoringCipher, QuicHeaderProtector, chacha20::ChaCha20Poly1305};
 
-    fn outbound_message(
-        payload: &[u8],
-        version: ProtocolVersion,
-    ) -> EncodedMessage<OutboundPlain<'_>> {
-        EncodedMessage::new(
+    fn outbound_record(payload: &[u8], version: ProtocolVersion) -> Record<OutboundPlain<'_>> {
+        Record::new(
             ContentType::ApplicationData,
-            version,
+            EncodableVersion::Legacy(version),
             OutboundPlain::Single(payload),
         )
+    }
+
+    fn encrypt_payload(
+        encrypter: &mut dyn RecordEncrypter,
+        payload: &[u8],
+        version: ProtocolVersion,
+        seq: u64,
+    ) -> Result<Vec<u8>, rustls::Error> {
+        let mut out = vec![0u8; encrypter.encrypted_payload_len(payload.len())];
+        let record = encrypter.encrypt(outbound_record(payload, version), seq, &mut out)?;
+        Ok(record.payload.to_vec())
     }
 
     #[test]
@@ -738,14 +762,11 @@ mod tests {
         )
         .unwrap();
 
-        encrypter
-            .encrypt(outbound_message(b"first", ProtocolVersion::TLSv1_3), 0)
+        encrypt_payload(&mut encrypter, b"first", ProtocolVersion::TLSv1_3, 0)
             .expect("initial sequence number should encrypt");
-        encrypter
-            .encrypt(outbound_message(b"second", ProtocolVersion::TLSv1_3), 1)
+        encrypt_payload(&mut encrypter, b"second", ProtocolVersion::TLSv1_3, 1)
             .expect("increasing sequence number should encrypt");
-        let err = encrypter
-            .encrypt(outbound_message(b"repeat", ProtocolVersion::TLSv1_3), 1)
+        let err = encrypt_payload(&mut encrypter, b"repeat", ProtocolVersion::TLSv1_3, 1)
             .expect_err("reused sequence number must be rejected");
 
         assert!(matches!(err, rustls::Error::EncryptError));
@@ -760,18 +781,15 @@ mod tests {
         let mut encrypter =
             BoringAeadCrypter::<Aes128>::new(iv, &[0u8; 16], ProtocolVersion::TLSv1_2).unwrap();
 
-        let first = encrypter
-            .encrypt(outbound_message(b"first", ProtocolVersion::TLSv1_2), 0)
+        let first = encrypt_payload(&mut encrypter, b"first", ProtocolVersion::TLSv1_2, 0)
             .expect("initial sequence number should encrypt");
-        assert_eq!(&first.payload.as_ref()[..8], &0u64.to_be_bytes());
+        assert_eq!(&first[..8], &0u64.to_be_bytes());
 
-        let second = encrypter
-            .encrypt(outbound_message(b"second", ProtocolVersion::TLSv1_2), 1)
+        let second = encrypt_payload(&mut encrypter, b"second", ProtocolVersion::TLSv1_2, 1)
             .expect("increasing sequence number should encrypt");
-        assert_eq!(&second.payload.as_ref()[..8], &1u64.to_be_bytes());
+        assert_eq!(&second[..8], &1u64.to_be_bytes());
 
-        let err = encrypter
-            .encrypt(outbound_message(b"repeat", ProtocolVersion::TLSv1_2), 1)
+        let err = encrypt_payload(&mut encrypter, b"repeat", ProtocolVersion::TLSv1_2, 1)
             .expect_err("reused sequence number must be rejected");
         assert!(matches!(err, rustls::Error::EncryptError));
     }
@@ -874,14 +892,14 @@ mod tests {
             Iv::from([0u8; 12]),
         );
         let mut payload = vec![0u8; 8];
-        let msg = EncodedMessage::new(
+        let record = Record::new(
             ContentType::ApplicationData,
-            ProtocolVersion::TLSv1_3,
+            EncodableVersion::Legacy(ProtocolVersion::TLSv1_3),
             InboundOpaque(&mut payload),
         );
 
         let err = decrypter
-            .decrypt(msg, 0)
+            .decrypt(record, 0)
             .expect_err("invalid constructor inputs should produce decrypt errors");
 
         assert!(matches!(err, rustls::Error::DecryptError));
@@ -911,14 +929,14 @@ mod tests {
             &[0u8; 4],
         );
         let mut payload = vec![0u8; 8];
-        let msg = EncodedMessage::new(
+        let record = Record::new(
             ContentType::ApplicationData,
-            ProtocolVersion::TLSv1_2,
+            EncodableVersion::Legacy(ProtocolVersion::TLSv1_2),
             InboundOpaque(&mut payload),
         );
 
         let err = decrypter
-            .decrypt(msg, 0)
+            .decrypt(record, 0)
             .expect_err("invalid constructor inputs should produce decrypt errors");
 
         assert!(matches!(err, rustls::Error::DecryptError));
@@ -978,14 +996,14 @@ mod tests {
         let min_payload_len =
             <Aes128 as BoringCipher>::EXPLICIT_NONCE_LEN + <Aes128 as BoringCipher>::TAG_LEN;
         let mut payload = vec![0u8; min_payload_len - 1];
-        let msg = EncodedMessage::new(
+        let record = Record::new(
             ContentType::ApplicationData,
-            ProtocolVersion::TLSv1_2,
+            EncodableVersion::Legacy(ProtocolVersion::TLSv1_2),
             InboundOpaque(&mut payload),
         );
 
         let err = decrypter
-            .decrypt(msg, 0)
+            .decrypt(record, 0)
             .expect_err("truncated TLS1.2 payload must fail decryption");
 
         assert!(matches!(err, rustls::Error::DecryptError));
