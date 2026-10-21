@@ -1,4 +1,4 @@
-use std::io::{Read, Write, stdout};
+use std::io::{Write, stdout};
 use std::net::TcpStream;
 use std::sync::Arc;
 
@@ -16,21 +16,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_name = "www.rust-lang.org"
         .try_into()
         .map_err(|_| std::io::Error::other("invalid server name"))?;
-    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name)?;
+    let config = Arc::new(config);
+    let mut tls_out = Vec::new();
+    let mut conn = config.connect(server_name).build(&mut tls_out)?;
     let mut sock = TcpStream::connect("www.rust-lang.org:443")?;
-    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
-    tls.write_all(
-        concat!(
-            "GET / HTTP/1.1\r\n",
-            "Host: www.rust-lang.org\r\n",
-            "Connection: close\r\n",
-            "Accept-Encoding: identity\r\n",
-            "\r\n"
-        )
-        .as_bytes(),
+    let mut tls_in = rustls::VecInput::default();
+
+    while conn.is_handshaking() {
+        sock.write_all(&tls_out)?;
+        tls_out.clear();
+
+        tls_in.read(&mut sock)?;
+        let mut plaintext = Vec::new();
+        conn.read_tls(&mut tls_in, &mut tls_out)
+            .handle_all(&mut plaintext)?;
+    }
+
+    let request = concat!(
+        "GET / HTTP/1.1\r\n",
+        "Host: www.rust-lang.org\r\n",
+        "Connection: close\r\n",
+        "Accept-Encoding: identity\r\n",
+        "\r\n"
+    );
+    conn.write(
+        rustls::crypto::cipher::OutboundPlain::Single(request.as_bytes()),
+        &mut tls_out,
     )?;
-    let ciphersuite = tls
-        .conn
+    sock.write_all(&tls_out)?;
+    tls_out.clear();
+
+    let ciphersuite = conn
         .negotiated_cipher_suite()
         .ok_or_else(|| std::io::Error::other("no negotiated ciphersuite"))?;
     writeln!(
@@ -39,7 +55,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ciphersuite.suite()
     )?;
     let mut plaintext = Vec::new();
-    tls.read_to_end(&mut plaintext)?;
+    loop {
+        let read = tls_in.read(&mut sock)?;
+        conn.read_tls(&mut tls_in, &mut tls_out)
+            .handle_all(&mut plaintext)?;
+        sock.write_all(&tls_out)?;
+        tls_out.clear();
+        if read == 0 {
+            break;
+        }
+    }
     stdout().write_all(&plaintext)?;
 
     Ok(())
