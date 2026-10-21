@@ -1,8 +1,4 @@
 use super::{BoringAead, BoringCipher, QuicCipher};
-use aead::{
-    AeadCore,
-    consts::{U12, U16},
-};
 use boring::aead::Algorithm;
 use rustls::{ConnectionTrafficSecrets, crypto::cipher};
 
@@ -69,33 +65,24 @@ impl QuicCipher for ChaCha20Poly1305 {
     }
 }
 
-impl AeadCore for ChaCha20Poly1305 {
-    type NonceSize = U12;
-
-    type TagSize = U16;
-
-    type CiphertextOverhead = U16;
-}
-
 #[cfg(test)]
 mod tests {
-    use aead::{AeadCore, Nonce, Tag, generic_array::GenericArray};
+    use boring::aead::Algorithm;
     use hex_literal::hex;
 
     use super::ChaCha20Poly1305;
     use crate::aead::{BoringCipher, QuicCipher};
 
     #[test]
-    fn ensure_aead_core() {
+    fn algorithm_metadata_and_tls_variant() {
         let alg = ChaCha20Poly1305::new_cipher();
-        let nonce = Nonce::<ChaCha20Poly1305>::default();
-        assert_eq!(nonce.len(), alg.nonce_len());
-        let tag = Tag::<ChaCha20Poly1305>::default();
-        assert_eq!(alg.max_tag_len(), tag.len());
-
-        let overhead =
-            GenericArray::<u8, <ChaCha20Poly1305 as AeadCore>::CiphertextOverhead>::default();
-        assert_eq!(alg.max_overhead(), overhead.len());
+        assert_eq!(alg.nonce_len(), 12);
+        assert_eq!(alg.max_tag_len(), ChaCha20Poly1305::TAG_LEN);
+        assert_eq!(alg.max_overhead(), ChaCha20Poly1305::TAG_LEN);
+        assert_eq!(
+            ChaCha20Poly1305::new_tls13_cipher(),
+            Algorithm::chacha20_poly1305()
+        );
     }
 
     #[test]
