@@ -33,7 +33,7 @@ fn tls12_suites_for_ecdsa() -> Vec<&'static rustls::Tls12CipherSuite> {
         .filter(|suite| {
             suite.sign.iter().any(|scheme| {
                 matches!(
-                    scheme,
+                    *scheme,
                     SignatureScheme::ECDSA_NISTP256_SHA256
                         | SignatureScheme::ECDSA_NISTP384_SHA384
                         | SignatureScheme::ECDSA_NISTP521_SHA512
@@ -52,7 +52,7 @@ fn tls12_suites_for_rsa() -> Vec<&'static rustls::Tls12CipherSuite> {
         .filter(|suite| {
             suite.sign.iter().any(|scheme| {
                 matches!(
-                    scheme,
+                    *scheme,
                     SignatureScheme::RSA_PKCS1_SHA256
                         | SignatureScheme::RSA_PKCS1_SHA384
                         | SignatureScheme::RSA_PKCS1_SHA512
@@ -71,50 +71,68 @@ fn do_handshake(
     client_config: ClientConfig,
     server_config: Arc<ServerConfig>,
 ) -> Option<NamedGroup> {
-    let mut client =
-        rustls::ClientConnection::new(Arc::new(client_config), "localhost".try_into().unwrap())
-            .unwrap();
-    let mut server = rustls::ServerConnection::new(server_config).unwrap();
+    let mut client_to_server = Vec::new();
+    let client_config = Arc::new(client_config);
+    let mut client = client_config
+        .connect("localhost".try_into().unwrap())
+        .build(&mut client_to_server)
+        .unwrap();
+    let mut server =
+        rustls::Connection::<rustls::ServerSide, rustls::Tcp>::new(server_config).unwrap();
+    let mut server_to_client = Vec::new();
 
-    // Drive the handshake to completion
-    let mut buf = Vec::new();
-    loop {
-        // client -> server
-        buf.clear();
-        if client.wants_write() {
-            client.write_tls(&mut buf).unwrap();
-        }
-        if !buf.is_empty() {
-            server.read_tls(&mut &buf[..]).unwrap();
-            server.process_new_packets().unwrap();
-        }
-
-        // server -> client
-        buf.clear();
-        if server.wants_write() {
-            server.write_tls(&mut buf).unwrap();
-        }
-        if !buf.is_empty() {
-            client.read_tls(&mut &buf[..]).unwrap();
-            client.process_new_packets().unwrap();
+    for _ in 0..100 {
+        if !client_to_server.is_empty() {
+            let mut input = rustls::SliceInput::new(&mut client_to_server);
+            let mut plaintext = Vec::new();
+            server
+                .read_tls(&mut input, &mut server_to_client)
+                .handle_all(&mut plaintext)
+                .unwrap();
+            let used = input.into_used();
+            client_to_server.drain(..used);
+            assert!(plaintext.is_empty());
         }
 
-        if !client.is_handshaking() && !server.is_handshaking() {
+        if !server_to_client.is_empty() {
+            let mut input = rustls::SliceInput::new(&mut server_to_client);
+            let mut plaintext = Vec::new();
+            client
+                .read_tls(&mut input, &mut client_to_server)
+                .handle_all(&mut plaintext)
+                .unwrap();
+            let used = input.into_used();
+            server_to_client.drain(..used);
+            assert!(plaintext.is_empty());
+        }
+
+        if !client.is_handshaking()
+            && !server.is_handshaking()
+            && client_to_server.is_empty()
+            && server_to_client.is_empty()
+        {
             break;
         }
     }
+    assert!(!client.is_handshaking());
+    assert!(!server.is_handshaking());
 
-    // Exchange application data
-    use std::io::{Read, Write};
-    client.writer().write_all(b"HELLO").unwrap();
+    let mut application_tls = Vec::new();
+    client
+        .write(
+            rustls::crypto::cipher::OutboundPlain::Single(b"HELLO"),
+            &mut application_tls,
+        )
+        .unwrap();
 
-    buf.clear();
-    client.write_tls(&mut buf).unwrap();
-    server.read_tls(&mut &buf[..]).unwrap();
-    server.process_new_packets().unwrap();
-
-    let mut app_buf = [0u8; 5];
-    server.reader().read_exact(&mut app_buf).unwrap();
+    let mut input = rustls::SliceInput::new(&mut application_tls);
+    let mut server_output = Vec::new();
+    let mut app_buf = Vec::new();
+    server
+        .read_tls(&mut input, &mut server_output)
+        .handle_all(&mut app_buf)
+        .unwrap();
+    assert_eq!(input.into_used(), application_tls.len());
     assert_eq!(&app_buf, b"HELLO");
 
     client
@@ -177,11 +195,10 @@ impl TestPki {
     }
 
     fn server_config(&self) -> Arc<ServerConfig> {
-        let mut cfg = ServerConfig::builder(Arc::new(boring_rustls_provider::provider()))
+        let cfg = ServerConfig::builder(Arc::new(boring_rustls_provider::provider()))
             .with_no_client_auth()
             .with_single_cert(self.server_identity(), self.server_key_der.clone_key())
             .unwrap();
-        cfg.key_log = Arc::new(rustls::KeyLogFile::new());
         Arc::new(cfg)
     }
 }
@@ -242,11 +259,10 @@ fn test_tls13_pq_x25519_mlkem768() {
             &tls13::AES_256_GCM_SHA384,
         )]);
     let server_config = {
-        let mut cfg = ServerConfig::builder(Arc::new(server_provider))
+        let cfg = ServerConfig::builder(Arc::new(server_provider))
             .with_no_client_auth()
             .with_single_cert(pki.server_identity(), pki.server_key_der.clone_key())
             .unwrap();
-        cfg.key_log = Arc::new(rustls::KeyLogFile::new());
         Arc::new(cfg)
     };
 
@@ -328,8 +344,9 @@ fn provider_verifiers_reject_malformed_inputs_without_panicking() {
 
     for (index, verifier) in provider
         .signature_verification_algorithms
-        .all
+        .mapping()
         .iter()
+        .flat_map(|(_, verifiers)| verifiers.iter())
         .enumerate()
     {
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

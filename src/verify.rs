@@ -1,8 +1,22 @@
 use rustls::crypto::{SignatureScheme, WebPkiSupportedAlgorithms};
+use rustls_pki_types::SignatureVerificationAlgorithm;
 
 pub(crate) mod ec;
 pub(crate) mod ed;
 pub(crate) mod rsa;
+
+const fn supported_algorithms(
+    all: &'static [&'static dyn SignatureVerificationAlgorithm],
+    mapping: &'static [(
+        SignatureScheme,
+        &'static [&'static dyn SignatureVerificationAlgorithm],
+    )],
+) -> WebPkiSupportedAlgorithms {
+    match WebPkiSupportedAlgorithms::new(all, mapping) {
+        Ok(algorithms) => algorithms,
+        Err(_) => panic!("static signature algorithm mappings must be valid"),
+    }
+}
 
 /// All supported signature verification algorithms.
 ///
@@ -11,8 +25,8 @@ pub(crate) mod rsa;
 ///
 /// For the FIPS-restricted subset see [`ALL_FIPS_ALGORITHMS`].
 #[allow(unused)]
-pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
-    all: &[
+pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = supported_algorithms(
+    &[
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA256,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA384,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA512,
@@ -25,7 +39,7 @@ pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms
         &ed::BoringEdVerifier::ED25519,
         &ed::BoringEdVerifier::ED448,
     ],
-    mapping: &[
+    &[
         (
             SignatureScheme::RSA_PKCS1_SHA256,
             &[&rsa::BoringRsaVerifier::RSA_PKCS1_SHA256],
@@ -65,7 +79,7 @@ pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms
         (SignatureScheme::ED25519, &[&ed::BoringEdVerifier::ED25519]),
         (SignatureScheme::ED448, &[&ed::BoringEdVerifier::ED448]),
     ],
-};
+);
 
 /// FIPS-approved signature verification algorithms per SP 800-52r2.
 ///
@@ -75,8 +89,8 @@ pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms
 ///     (SP 800-52r2 Table 4.1: "The curve should be P-256 or P-384")
 ///   - No P-521, Ed25519, or Ed448
 #[allow(unused)]
-pub static ALL_FIPS_ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
-    all: &[
+pub static ALL_FIPS_ALGORITHMS: WebPkiSupportedAlgorithms = supported_algorithms(
+    &[
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA256,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA384,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA512,
@@ -86,7 +100,7 @@ pub static ALL_FIPS_ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgor
         &ec::BoringEcVerifier::ECDSA_NISTP256_SHA256,
         &ec::BoringEcVerifier::ECDSA_NISTP384_SHA384,
     ],
-    mapping: &[
+    &[
         (
             SignatureScheme::RSA_PKCS1_SHA256,
             &[&rsa::BoringRsaVerifier::RSA_PKCS1_SHA256],
@@ -120,4 +134,4 @@ pub static ALL_FIPS_ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgor
             &[&ec::BoringEcVerifier::ECDSA_NISTP384_SHA384],
         ),
     ],
-};
+);

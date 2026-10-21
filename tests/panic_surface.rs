@@ -30,6 +30,11 @@ const ALLOWLIST: &[AllowlistedPanic] = &[
         reason: "rustls hash trait is infallible; provider currently cannot surface this as Result",
     },
     AllowlistedPanic {
+        path_suffix: "boring-rustls-provider/src/verify.rs",
+        message_fragment: "static signature algorithm mappings must be valid",
+        reason: "rustls validates static signature mappings in const context; invalid mappings fail compilation",
+    },
+    AllowlistedPanic {
         path_suffix: "boring-rustls-provider/src/hash.rs",
         message_fragment: "failed getting hasher",
         reason: "rustls hash trait is infallible; provider currently cannot surface this as Result",
