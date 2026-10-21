@@ -1,5 +1,4 @@
 use super::{BoringAead, BoringCipher, QuicCipher};
-use aead::consts::{U12, U16};
 use boring::aead::Algorithm;
 use rustls::{ConnectionTrafficSecrets, crypto::cipher};
 
@@ -26,15 +25,18 @@ impl BoringCipher for Aes128 {
         Algorithm::aes_128_gcm()
     }
 
+    #[cfg(feature = "tls12")]
+    fn new_tls12_cipher() -> Algorithm {
+        Algorithm::aes_128_gcm_tls12()
+    }
+
+    fn new_tls13_cipher() -> Algorithm {
+        Algorithm::aes_128_gcm_tls13()
+    }
+
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets {
         ConnectionTrafficSecrets::Aes128Gcm { key, iv }
     }
-}
-
-impl aead::AeadCore for Aes128 {
-    type NonceSize = U12;
-    type TagSize = U16;
-    type CiphertextOverhead = U16;
 }
 
 impl QuicCipher for Aes128 {
@@ -72,15 +74,18 @@ impl BoringCipher for Aes256 {
         Algorithm::aes_256_gcm()
     }
 
+    #[cfg(feature = "tls12")]
+    fn new_tls12_cipher() -> Algorithm {
+        Algorithm::aes_256_gcm_tls12()
+    }
+
+    fn new_tls13_cipher() -> Algorithm {
+        Algorithm::aes_256_gcm_tls13()
+    }
+
     fn extract_keys(key: cipher::AeadKey, iv: cipher::Iv) -> ConnectionTrafficSecrets {
         ConnectionTrafficSecrets::Aes256Gcm { key, iv }
     }
-}
-
-impl aead::AeadCore for Aes256 {
-    type NonceSize = U12;
-    type TagSize = U16;
-    type CiphertextOverhead = U16;
 }
 
 impl QuicCipher for Aes256 {
@@ -129,7 +134,7 @@ fn quic_header_protection_mask<const KEY_SIZE: usize, const SAMPLE_LEN: usize>(
 
 #[cfg(test)]
 mod tests {
-    use aead::{AeadCore, Nonce, Tag, generic_array::GenericArray};
+    use boring::aead::Algorithm;
 
     use crate::aead::{
         BoringCipher,
@@ -137,26 +142,24 @@ mod tests {
     };
 
     #[test]
-    fn ensure_aes128_aead_core() {
+    fn aes128_algorithm_metadata_and_tls_variants() {
         let alg = Aes128::new_cipher();
-        let nonce = Nonce::<Aes128>::default();
-        assert_eq!(nonce.len(), alg.nonce_len());
-        let tag = Tag::<Aes128>::default();
-        assert_eq!(alg.max_tag_len(), tag.len());
-
-        let overhead = GenericArray::<u8, <Aes128 as AeadCore>::CiphertextOverhead>::default();
-        assert_eq!(alg.max_overhead(), overhead.len());
+        assert_eq!(alg.nonce_len(), 12);
+        assert_eq!(alg.max_tag_len(), Aes128::TAG_LEN);
+        assert_eq!(alg.max_overhead(), Aes128::TAG_LEN);
+        assert_eq!(Aes128::new_tls13_cipher(), Algorithm::aes_128_gcm_tls13());
+        #[cfg(feature = "tls12")]
+        assert_eq!(Aes128::new_tls12_cipher(), Algorithm::aes_128_gcm_tls12());
     }
 
     #[test]
-    fn ensure_aes256_aead_core() {
+    fn aes256_algorithm_metadata_and_tls_variants() {
         let alg = Aes256::new_cipher();
-        let nonce = Nonce::<Aes256>::default();
-        assert_eq!(nonce.len(), alg.nonce_len());
-        let tag = Tag::<Aes256>::default();
-        assert_eq!(alg.max_tag_len(), tag.len());
-
-        let overhead = GenericArray::<u8, <Aes256 as AeadCore>::CiphertextOverhead>::default();
-        assert_eq!(alg.max_overhead(), overhead.len());
+        assert_eq!(alg.nonce_len(), 12);
+        assert_eq!(alg.max_tag_len(), Aes256::TAG_LEN);
+        assert_eq!(alg.max_overhead(), Aes256::TAG_LEN);
+        assert_eq!(Aes256::new_tls13_cipher(), Algorithm::aes_256_gcm_tls13());
+        #[cfg(feature = "tls12")]
+        assert_eq!(Aes256::new_tls12_cipher(), Algorithm::aes_256_gcm_tls12());
     }
 }
