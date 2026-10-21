@@ -42,9 +42,8 @@ tls12 = ["boring/prf"]
 logging = ["log"]
 
 [dependencies]
-aead = { version = "0.5", default-features = false, features = ["alloc"] }
-boring = { version = ">=5.1, <6", default-features = false }
-boring-sys = { version = ">=5.1, <6", default-features = false }
+boring = { version = ">=5.3, <6", default-features = false }
+boring-sys = { version = ">=5.3, <6", default-features = false }
 foreign-types = "0.5"
 log = { version = "0.4.4", optional = true }
 rustls = { version = "0.24.0-dev.0", default-features = false }
