@@ -3,6 +3,8 @@ use rustls_pki_types::SignatureVerificationAlgorithm;
 
 pub(crate) mod ec;
 pub(crate) mod ed;
+#[cfg(feature = "mldsa")]
+pub(crate) mod mldsa;
 pub(crate) mod rsa;
 
 const fn supported_algorithms(
@@ -20,13 +22,19 @@ const fn supported_algorithms(
 
 /// All supported signature verification algorithms.
 ///
-/// Includes RSA (PKCS#1 v1.5 and PSS), ECDSA (P-256, P-384, P-521),
-/// Ed25519, and Ed448.
+/// Includes ML-DSA when enabled, RSA (PKCS#1 v1.5 and PSS), ECDSA
+/// (P-256, P-384, P-521), Ed25519, and Ed448.
 ///
 /// For the FIPS-restricted subset see [`ALL_FIPS_ALGORITHMS`].
 #[allow(unused)]
 pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = supported_algorithms(
     &[
+        #[cfg(feature = "mldsa")]
+        &mldsa::BoringMlDsaVerifier::ML_DSA_44,
+        #[cfg(feature = "mldsa")]
+        &mldsa::BoringMlDsaVerifier::ML_DSA_65,
+        #[cfg(feature = "mldsa")]
+        &mldsa::BoringMlDsaVerifier::ML_DSA_87,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA256,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA384,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA512,
@@ -40,6 +48,21 @@ pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = supported_algorithms(
         &ed::BoringEdVerifier::ED448,
     ],
     &[
+        #[cfg(feature = "mldsa")]
+        (
+            SignatureScheme::ML_DSA_44,
+            &[&mldsa::BoringMlDsaVerifier::ML_DSA_44],
+        ),
+        #[cfg(feature = "mldsa")]
+        (
+            SignatureScheme::ML_DSA_65,
+            &[&mldsa::BoringMlDsaVerifier::ML_DSA_65],
+        ),
+        #[cfg(feature = "mldsa")]
+        (
+            SignatureScheme::ML_DSA_87,
+            &[&mldsa::BoringMlDsaVerifier::ML_DSA_87],
+        ),
         (
             SignatureScheme::RSA_PKCS1_SHA256,
             &[&rsa::BoringRsaVerifier::RSA_PKCS1_SHA256],
@@ -81,9 +104,12 @@ pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = supported_algorithms(
     ],
 );
 
-/// FIPS-approved signature verification algorithms per SP 800-52r2.
+/// Signature verification algorithms exposed by the FIPS configuration.
 ///
-/// Aligned with boring's `fips202205` compliance policy:
+/// The classical subset follows SP 800-52r2. ML-DSA is standardized by FIPS
+/// 204. Its FIPS 140 validation status depends on the exact BoringSSL module
+/// and its validation certificate:
+///   - ML-DSA: ML-DSA-44, ML-DSA-65, and ML-DSA-87 (FIPS 204)
 ///   - RSA: PKCS#1 v1.5 and PSS with SHA-256/384/512
 ///   - ECDSA: P-256 with SHA-256 and P-384 with SHA-384 only
 ///     (SP 800-52r2 Table 4.1: "The curve should be P-256 or P-384")
@@ -91,6 +117,12 @@ pub static ALL_ALGORITHMS: WebPkiSupportedAlgorithms = supported_algorithms(
 #[allow(unused)]
 pub static ALL_FIPS_ALGORITHMS: WebPkiSupportedAlgorithms = supported_algorithms(
     &[
+        #[cfg(feature = "mldsa")]
+        &mldsa::BoringMlDsaVerifier::ML_DSA_44,
+        #[cfg(feature = "mldsa")]
+        &mldsa::BoringMlDsaVerifier::ML_DSA_65,
+        #[cfg(feature = "mldsa")]
+        &mldsa::BoringMlDsaVerifier::ML_DSA_87,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA256,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA384,
         &rsa::BoringRsaVerifier::RSA_PKCS1_SHA512,
@@ -101,6 +133,21 @@ pub static ALL_FIPS_ALGORITHMS: WebPkiSupportedAlgorithms = supported_algorithms
         &ec::BoringEcVerifier::ECDSA_NISTP384_SHA384,
     ],
     &[
+        #[cfg(feature = "mldsa")]
+        (
+            SignatureScheme::ML_DSA_44,
+            &[&mldsa::BoringMlDsaVerifier::ML_DSA_44],
+        ),
+        #[cfg(feature = "mldsa")]
+        (
+            SignatureScheme::ML_DSA_65,
+            &[&mldsa::BoringMlDsaVerifier::ML_DSA_65],
+        ),
+        #[cfg(feature = "mldsa")]
+        (
+            SignatureScheme::ML_DSA_87,
+            &[&mldsa::BoringMlDsaVerifier::ML_DSA_87],
+        ),
         (
             SignatureScheme::RSA_PKCS1_SHA256,
             &[&rsa::BoringRsaVerifier::RSA_PKCS1_SHA256],
