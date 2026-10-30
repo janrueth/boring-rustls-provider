@@ -1,5 +1,7 @@
 use rcgen::CertificateParams;
 use std::sync::Arc;
+#[cfg(feature = "mldsa")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -12,6 +14,74 @@ use rustls::{ClientConfig, ServerConfig, SupportedCipherSuite, version::TLS13};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
+
+#[cfg(feature = "mldsa")]
+#[derive(Debug)]
+struct MlDsa44HandshakeVerifier {
+    verified_tls13_signature: Arc<AtomicBool>,
+}
+
+#[cfg(feature = "mldsa")]
+impl rustls::client::danger::ServerCertVerifier for MlDsa44HandshakeVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &rustls_pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls_pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Err(rustls::Error::General(
+            "ML-DSA is not supported in TLS 1.2".into(),
+        ))
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        assert_eq!(dss.scheme, rustls::SignatureScheme::ML_DSA_44);
+        let provider = boring_rustls_provider::provider();
+        let verified = rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &provider.signature_verification_algorithms,
+        )?;
+        self.verified_tls13_signature.store(true, Ordering::Relaxed);
+        Ok(verified)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![rustls::SignatureScheme::ML_DSA_44]
+    }
+}
+
+#[cfg(feature = "mldsa")]
+fn rfc9881_mldsa44_credentials() -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
+    let cert = CertificateDer::from(
+        include_bytes!("fixtures/mldsa44-rfc9881.der")
+            .as_slice()
+            .to_vec(),
+    );
+    let mut key = vec![
+        0x30, 0x34, 0x02, 0x01, 0x00, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03,
+        0x04, 0x03, 0x11, 0x04, 0x22, 0x80, 0x20,
+    ];
+    key.extend(0u8..32);
+    (cert, PrivatePkcs8KeyDer::from(key).into())
+}
 
 fn tls13_provider_suites() -> Vec<SupportedCipherSuite> {
     boring_rustls_provider::provider()
@@ -127,6 +197,99 @@ fn provider_verifiers_reject_malformed_inputs_without_panicking() {
             "verifier #{index} accepted malformed inputs"
         );
     }
+}
+
+#[test]
+#[cfg(feature = "mldsa")]
+fn provider_exposes_all_mldsa_schemes_first() {
+    use rustls::SignatureScheme;
+
+    let provider = boring_rustls_provider::provider();
+    let schemes = provider
+        .signature_verification_algorithms
+        .mapping
+        .iter()
+        .map(|(scheme, _)| *scheme)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        &schemes[..3],
+        &[
+            SignatureScheme::ML_DSA_44,
+            SignatureScheme::ML_DSA_65,
+            SignatureScheme::ML_DSA_87,
+        ]
+    );
+}
+
+#[tokio::test]
+#[cfg(feature = "mldsa")]
+async fn mldsa44_completes_tls13_handshake() {
+    let (cert, key) = rfc9881_mldsa44_credentials();
+    let server_config =
+        ServerConfig::builder_with_provider(Arc::new(boring_rustls_provider::provider()))
+            .with_protocol_versions(&[&TLS13])
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], key)
+            .unwrap();
+
+    let verified = Arc::new(AtomicBool::new(false));
+    let verifier = MlDsa44HandshakeVerifier {
+        verified_tls13_signature: verified.clone(),
+    };
+    let client_config =
+        ClientConfig::builder_with_provider(Arc::new(boring_rustls_provider::provider()))
+            .with_protocol_versions(&[&TLS13])
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(verifier))
+            .with_no_client_auth();
+
+    do_exchange(client_config, Arc::new(server_config)).await;
+    assert!(verified.load(Ordering::Relaxed));
+}
+
+#[tokio::test]
+#[cfg(all(feature = "mldsa", feature = "tls12"))]
+async fn mldsa_is_not_negotiated_for_tls12() {
+    let (cert, key) = rfc9881_mldsa44_credentials();
+    let server_config =
+        ServerConfig::builder_with_provider(Arc::new(boring_rustls_provider::provider()))
+            .with_protocol_versions(&[&TLS12])
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], key)
+            .unwrap();
+    let verifier = MlDsa44HandshakeVerifier {
+        verified_tls13_signature: Arc::new(AtomicBool::new(false)),
+    };
+    let client_config =
+        ClientConfig::builder_with_provider(Arc::new(boring_rustls_provider::provider()))
+            .with_protocol_versions(&[&TLS12])
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(verifier))
+            .with_no_client_auth();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        TlsAcceptor::from(Arc::new(server_config))
+            .accept(stream)
+            .await
+    });
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let client_result = TlsConnector::from(Arc::new(client_config))
+        .connect(
+            rustls_pki_types::ServerName::try_from("localhost").unwrap(),
+            stream,
+        )
+        .await;
+
+    assert!(client_result.is_err());
+    assert!(server.await.unwrap().is_err());
 }
 
 /// Self-to-self TLS 1.3 handshake using only the X25519MLKEM768 PQ hybrid group.
@@ -405,6 +568,9 @@ fn fips_provider_excludes_disallowed_signature_schemes() {
 
     assert!(schemes.contains(&SignatureScheme::RSA_PSS_SHA256));
     assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP256_SHA256));
+    assert!(schemes.contains(&SignatureScheme::ML_DSA_44));
+    assert!(schemes.contains(&SignatureScheme::ML_DSA_65));
+    assert!(schemes.contains(&SignatureScheme::ML_DSA_87));
 
     for disallowed in [
         SignatureScheme::ECDSA_NISTP521_SHA512,

@@ -45,6 +45,20 @@ jobs:
     - name: Build (default features)
       run: make build FEATURES=""
 
+  test-no-default-features:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: sudo apt-get install -y cmake clang
+    - name: Lint (no default features)
+      run: cargo clippy --all-targets --no-default-features
+    - name: Test (no default features)
+      run: cargo test --all-targets --no-default-features
+    - name: Build (no default features)
+      run: cargo build --all-targets --no-default-features
+
   test-tls12:
     runs-on: ubuntu-latest
 
