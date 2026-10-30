@@ -399,6 +399,35 @@ fn fips_provider_with_ciphers_filters_non_fips_input() {
 
 #[test]
 #[cfg(feature = "fips")]
+fn fips_provider_rejects_noncanonical_suite_with_approved_codepoint() {
+    let canonical = &tls13::AES_128_GCM_SHA256;
+    let noncanonical = Box::leak(Box::new(rustls::Tls13CipherSuite {
+        common: rustls::crypto::CipherSuiteCommon {
+            suite: canonical.common.suite,
+            hash_provider: canonical.common.hash_provider,
+            confidentiality_limit: canonical.common.confidentiality_limit,
+        },
+        protocol_version: canonical.protocol_version,
+        hkdf_provider: canonical.hkdf_provider,
+        aead_alg: canonical.aead_alg,
+        quic: canonical.quic,
+    }));
+
+    // rustls compares suites by codepoint, so these are equal despite carrying
+    // distinct implementation objects.
+    assert_eq!(canonical, noncanonical);
+
+    let provider = boring_rustls_provider::provider_with_ciphers(vec![
+        SupportedCipherSuite::Tls13(noncanonical),
+        SupportedCipherSuite::Tls13(canonical),
+    ]);
+
+    assert_eq!(provider.tls13_cipher_suites.len(), 1);
+    assert!(std::ptr::eq(provider.tls13_cipher_suites[0], canonical));
+}
+
+#[test]
+#[cfg(feature = "fips")]
 fn fips_provider_restricts_kx_groups() {
     let provider = boring_rustls_provider::provider();
     let groups: Vec<_> = provider
@@ -449,6 +478,32 @@ fn fips_provider_excludes_disallowed_signature_schemes() {
             "FIPS provider exposed disallowed signature scheme: {disallowed:?}"
         );
     }
+}
+
+#[test]
+#[cfg(all(feature = "fips", feature = "tls12"))]
+fn fips_tls12_suites_exclude_disallowed_signature_schemes() {
+    let provider = boring_rustls_provider::provider();
+    let mut checked_suites = 0;
+    for suite in provider.tls12_cipher_suites.iter() {
+        if !matches!(
+            suite.common.suite,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+                | CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        ) {
+            continue;
+        }
+
+        checked_suites += 1;
+        assert_eq!(
+            suite.sign,
+            &[
+                SignatureScheme::ECDSA_NISTP256_SHA256,
+                SignatureScheme::ECDSA_NISTP384_SHA384,
+            ]
+        );
+    }
+    assert_eq!(checked_suites, 2);
 }
 
 // ---------------------------------------------------------------------------
