@@ -38,7 +38,7 @@ out of the box; additional capabilities are opt-in.
 
 | Feature | Description |
 |---|---|
-| `fips` | Build against FIPS-validated BoringSSL and restrict the provider to FIPS-approved algorithms only (SP 800-52r2). Implies `mlkem`. See [FIPS mode](#fips-mode) below. |
+| `fips` | Build BoringSSL in FIPS mode and restrict the provider to its FIPS-approved algorithm set (SP 800-52r2). Implies `mlkem`. See [FIPS mode](#fips-mode) below. |
 | `fips-precompiled` | Deprecated alias for `fips`. Matches the `boring` crate's feature name. |
 | `mlkem` | Enable the X25519MLKEM768 post-quantum hybrid key exchange group (`draft-ietf-tls-ecdhe-mlkem-00`). Uses ML-KEM-768 (FIPS 203) combined with X25519. See [Post-quantum key exchange](#post-quantum-key-exchange). |
 | `tls12` | Enable TLS 1.2 cipher suites (`ECDHE-ECDSA` and `ECDHE-RSA` with AES-GCM and ChaCha20-Poly1305). Without this only TLS 1.3 is available. |
@@ -67,7 +67,7 @@ ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 
 ### Key Exchange Groups
 
-Matches boring's default supported group list:
+The provider implements the following BoringSSL key exchange groups:
 
 ```
 X25519MLKEM768 (0x11ec, requires mlkem feature, TLS 1.3 only)
@@ -116,16 +116,28 @@ Interoperability has been verified against Cloudflare's PQ endpoints
 
 ## FIPS Mode
 
-When the `fips` feature is enabled the provider builds against a FIPS-validated
-version of BoringSSL and restricts all algorithm selections to those approved
-under [SP 800-52r2](https://doi.org/10.6028/NIST.SP.800-52r2), aligned with
-boring's `fips202205` compliance policy:
+When the `fips` feature is enabled, the provider builds BoringSSL in FIPS mode
+and restricts its algorithm selections according to
+[SP 800-52r2](https://doi.org/10.6028/NIST.SP.800-52r2):
 
 - **Cipher suites**: AES-GCM only (no ChaCha20-Poly1305).
 - **Key exchange groups**: X25519MLKEM768 (preferred), P-256, and P-384 only
   (no standalone X25519).
-- **Signature algorithms**: RSA PKCS#1 / PSS and ECDSA with P-256 or P-384 only
-  (no P-521, Ed25519, or Ed448).
+- **Signature algorithms and keys**: RSA PKCS#1 / PSS with keys of at least
+  2048 bits, and ECDSA with P-256 or P-384 only (no P-521, Ed25519, or Ed448).
+
+This crate integrates BoringSSL cryptographic primitives with rustls. It does
+not construct a BoringSSL TLS context, so TLS policy is enforced through the
+algorithm lists and key provider in the returned rustls `CryptoProvider`.
+`provider_with_ciphers` accepts only this crate's canonical FIPS cipher-suite
+implementations when the `fips` feature is enabled.
+
+The restrictions above apply to the provider's built-in configuration and key
+loading. Applications that replace rustls components—particularly custom
+credential resolvers or signing keys—must independently ensure those
+components select only approved algorithms and key sizes. Running BoringSSL in
+FIPS mode is necessary for this configuration, but does not by itself establish
+compliance for an application as a whole.
 
 ## License
 

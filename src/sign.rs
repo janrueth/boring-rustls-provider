@@ -118,7 +118,22 @@ impl TryFrom<PrivateKeyDer<'static>> for BoringPrivateKey {
 
         #[cfg(feature = "fips")]
         match kind {
-            KeyKind::Rsa | KeyKind::Ec(EcCurve::P256 | EcCurve::P384) => {}
+            KeyKind::Rsa => {
+                let rsa = pkey.rsa().map_err(|e| {
+                    log_and_map(
+                        "rsa",
+                        e,
+                        rustls::Error::General("failed inspecting RSA private key".into()),
+                    )
+                })?;
+                let rsa_bits = rsa.n().num_bits();
+                if rsa_bits < 2048 {
+                    return Err(rustls::Error::General(format!(
+                        "RSA key too small for FIPS mode ({rsa_bits}-bit, minimum 2048)"
+                    )));
+                }
+            }
+            KeyKind::Ec(EcCurve::P256 | EcCurve::P384) => {}
             KeyKind::Ec(EcCurve::P521) | KeyKind::Ed25519 | KeyKind::Ed448 => {
                 return Err(rustls::Error::General(
                     "key type is not allowed in FIPS mode".into(),
@@ -366,5 +381,32 @@ mod tests {
             .expect("RSA key should select an offered scheme");
 
         assert_eq!(signer.scheme(), SignatureScheme::RSA_PSS_SHA256);
+    }
+
+    #[test]
+    #[cfg(feature = "fips")]
+    fn fips_rejects_rsa_key_below_2048_bits() {
+        let rsa = Rsa::generate(1024).unwrap();
+        let pkey = PKey::from_rsa(rsa).unwrap();
+        let pkcs8_der = pkey.private_key_to_der_pkcs8().unwrap();
+        let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(pkcs8_der));
+
+        let err = BoringPrivateKey::try_from(key_der)
+            .expect_err("1024-bit RSA key should be rejected in FIPS mode");
+        assert!(
+            err.to_string().contains("too small for FIPS mode"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "fips")]
+    fn fips_accepts_2048_bit_rsa_key() {
+        let rsa = Rsa::generate(2048).unwrap();
+        let pkey = PKey::from_rsa(rsa).unwrap();
+        let pkcs8_der = pkey.private_key_to_der_pkcs8().unwrap();
+        let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(pkcs8_der));
+
+        BoringPrivateKey::try_from(key_der).expect("2048-bit RSA key should load in FIPS mode");
     }
 }
