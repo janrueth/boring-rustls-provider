@@ -1,0 +1,23 @@
+src/sign.rs
+  s_a530f499013012::t_67d1c1b288f5a8 3-4,30-42,56-64,69-109,115-124,216-217,220,289-290,293-294,297-298,301-302,304,307-312,317-323,332-333,338-367,454-458,460-461,469-594
+src/verify/mldsa.rs
+  s_a530f499013012::t_2f0cf6b68172ab 1-81
+tests/e2e.rs
+  s_a530f499013012::t_2d484f4aeeb15e 3-4,18-85,202-294,571-573
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f73801ca0769c6e9b282101c726bf9eadd032b88",
+  "prompts": {},
+  "sessions": {
+    "s_a530f499013012": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_e73855c57ffeFDvrfQLZswi4gp",
+        "model": "unknown"
+      },
+      "human_author": "Jan Rüth <1324490+janrueth@users.noreply.github.com>"
+    }
+  }
+}
