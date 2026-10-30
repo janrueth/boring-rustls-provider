@@ -24,4 +24,4 @@ build:
 
 .PHONY: doc
 doc:
-	RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps -F logging,tls12,mlkem
+	RUSTDOCFLAGS="-D missing_docs" cargo doc --no-deps -F logging,tls12,mlkem,mldsa

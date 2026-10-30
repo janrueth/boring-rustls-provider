@@ -13,11 +13,14 @@
 //!
 //! # Features
 //!
-//! No features are enabled by default. The provider ships with TLS 1.3 support
-//! out of the box; additional capabilities are opt-in via feature flags:
+//! The `mldsa` feature is enabled by default. The provider ships with TLS 1.3
+//! support out of the box; other capabilities are opt-in via feature flags:
 //!
 //! - **`fips`** — Build BoringSSL in FIPS mode and restrict the provider's
-//!   algorithms according to SP 800-52r2. Implies `mlkem`.
+//!   classical algorithms according to SP 800-52r2. Implies `mlkem` and
+//!   `mldsa`.
+//! - **`mldsa`** — Enable ML-DSA-44, ML-DSA-65, and ML-DSA-87 certificate
+//!   verification and TLS 1.3 authentication. Enabled by default.
 //! - **`mlkem`** — Enable the X25519MLKEM768 post-quantum hybrid key exchange
 //!   group.
 //! - **`tls12`** — Enable TLS 1.2 cipher suites.
@@ -31,7 +34,8 @@
 //! that replace rustls components, particularly credential resolvers or signing
 //! keys, must independently preserve those restrictions. Running BoringSSL in
 //! FIPS mode does not by itself establish compliance for an application as a
-//! whole.
+//! whole. ML-DSA is standardized by FIPS 204. Its FIPS 140 validation status
+//! depends on the exact BoringSSL module and its validation certificate.
 
 use std::borrow::Cow;
 
@@ -65,9 +69,9 @@ pub mod verify;
 /// Returns a [`CryptoProvider`] with the default set of cipher suites and
 /// key exchange groups.
 ///
-/// When the `fips` feature is enabled the provider is restricted to
-/// FIPS-approved algorithms and will **panic** if the underlying BoringSSL
-/// library is not running in FIPS mode.
+/// When the `fips` feature is enabled the provider uses its documented FIPS
+/// configuration and will **panic** if the underlying BoringSSL library is not
+/// running in FIPS mode.
 pub fn provider() -> CryptoProvider {
     #[cfg(feature = "fips")]
     {

@@ -1,13 +1,88 @@
 use std::sync::Arc;
+#[cfg(feature = "mldsa")]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use boring_rustls_provider::tls13;
-#[cfg(any(feature = "tls12", feature = "fips"))]
+#[cfg(any(feature = "tls12", feature = "fips", feature = "mldsa"))]
 use rustls::crypto::SignatureScheme;
 use rustls::crypto::kx::NamedGroup;
 use rustls::crypto::{CipherSuite, Identity};
 use rustls::{ClientConfig, ServerConfig, SupportedCipherSuite};
 #[cfg(not(feature = "fips"))]
 use rustls_pki_types::FipsStatus;
+
+#[cfg(feature = "mldsa")]
+#[derive(Debug)]
+struct MlDsa44HandshakeVerifier {
+    verified_tls13_signature: Arc<AtomicBool>,
+}
+
+#[cfg(feature = "mldsa")]
+impl rustls::client::danger::ServerVerifier for MlDsa44HandshakeVerifier {
+    fn verify_identity<'a>(
+        &self,
+        identity: &rustls::client::danger::ServerIdentity<'a, '_>,
+    ) -> Result<rustls::crypto::VerifiedIdentity<'a>, rustls::Error> {
+        Ok(rustls::crypto::VerifiedIdentity::assertion(
+            identity.identity.clone(),
+        ))
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _input: &rustls::client::danger::SignatureVerificationInput<'_>,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Err(rustls::Error::General(
+            "ML-DSA is not supported in TLS 1.2".into(),
+        ))
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        input: &rustls::client::danger::SignatureVerificationInput<'_>,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        assert_eq!(input.signature.scheme, SignatureScheme::ML_DSA_44);
+        let provider = boring_rustls_provider::provider();
+        let verified = rustls::crypto::verify_tls13_signature(
+            input,
+            &provider.signature_verification_algorithms,
+        )?;
+        self.verified_tls13_signature.store(true, Ordering::Relaxed);
+        Ok(verified)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![SignatureScheme::ML_DSA_44]
+    }
+
+    fn request_ocsp_response(&self) -> bool {
+        false
+    }
+
+    fn hash_config(&self, _hasher: &mut dyn std::hash::Hasher) {}
+}
+
+#[cfg(feature = "mldsa")]
+fn rfc9881_mldsa44_credentials() -> (
+    Arc<Identity<'static>>,
+    rustls_pki_types::PrivateKeyDer<'static>,
+) {
+    let cert = rustls_pki_types::CertificateDer::from(
+        include_bytes!("fixtures/mldsa44-rfc9881.der")
+            .as_slice()
+            .to_vec(),
+    );
+    let identity = Arc::new(Identity::from_cert_chain(vec![cert]).unwrap());
+    let mut key = vec![
+        0x30, 0x34, 0x02, 0x01, 0x00, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03,
+        0x04, 0x03, 0x11, 0x04, 0x22, 0x80, 0x20,
+    ];
+    key.extend(0u8..32);
+    (
+        identity,
+        rustls_pki_types::PrivatePkcs8KeyDer::from(key).into(),
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -138,6 +213,52 @@ fn do_handshake(
     client
         .negotiated_key_exchange_group()
         .map(|group| group.name())
+}
+
+#[cfg(all(feature = "mldsa", feature = "tls12"))]
+fn try_handshake(
+    client_config: ClientConfig,
+    server_config: Arc<ServerConfig>,
+) -> Result<(), rustls::Error> {
+    let mut client_to_server = Vec::new();
+    let client_config = Arc::new(client_config);
+    let mut client = client_config
+        .connect("localhost".try_into().unwrap())
+        .build(&mut client_to_server)?;
+    let mut server = rustls::Connection::<rustls::ServerSide, rustls::Tcp>::new(server_config)?;
+    let mut server_to_client = Vec::new();
+
+    for _ in 0..20 {
+        if !client_to_server.is_empty() {
+            let mut input = rustls::SliceInput::new(&mut client_to_server);
+            let mut plaintext = Vec::new();
+            server
+                .read_tls(&mut input, &mut server_to_client)
+                .handle_all(&mut plaintext)?;
+            let used = input.into_used();
+            client_to_server.drain(..used);
+        }
+
+        if !server_to_client.is_empty() {
+            let mut input = rustls::SliceInput::new(&mut server_to_client);
+            let mut plaintext = Vec::new();
+            client
+                .read_tls(&mut input, &mut client_to_server)
+                .handle_all(&mut plaintext)?;
+            let used = input.into_used();
+            server_to_client.drain(..used);
+        }
+
+        if !client.is_handshaking()
+            && !server.is_handshaking()
+            && client_to_server.is_empty()
+            && server_to_client.is_empty()
+        {
+            return Ok(());
+        }
+    }
+
+    Err(rustls::Error::General("handshake did not complete".into()))
 }
 
 struct TestPki {
@@ -359,6 +480,78 @@ fn provider_verifiers_reject_malformed_inputs_without_panicking() {
             "verifier #{index} accepted malformed inputs"
         );
     }
+}
+
+#[test]
+#[cfg(feature = "mldsa")]
+fn provider_exposes_all_mldsa_schemes_first() {
+    let provider = boring_rustls_provider::provider();
+    let schemes = provider
+        .signature_verification_algorithms
+        .mapping()
+        .iter()
+        .map(|(scheme, _)| *scheme)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        &schemes[..3],
+        &[
+            SignatureScheme::ML_DSA_44,
+            SignatureScheme::ML_DSA_65,
+            SignatureScheme::ML_DSA_87,
+        ]
+    );
+}
+
+#[test]
+#[cfg(feature = "mldsa")]
+fn mldsa44_completes_tls13_handshake() {
+    let (identity, key) = rfc9881_mldsa44_credentials();
+    let server_config = ServerConfig::builder(Arc::new(boring_rustls_provider::provider()))
+        .with_no_client_auth()
+        .with_single_cert(identity, key)
+        .unwrap();
+
+    let verified = Arc::new(AtomicBool::new(false));
+    let verifier = MlDsa44HandshakeVerifier {
+        verified_tls13_signature: verified.clone(),
+    };
+    let client_config = ClientConfig::builder(Arc::new(boring_rustls_provider::provider()))
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_no_client_auth()
+        .unwrap();
+
+    do_handshake(client_config, Arc::new(server_config));
+    assert!(verified.load(Ordering::Relaxed));
+}
+
+#[test]
+#[cfg(all(feature = "mldsa", feature = "tls12"))]
+fn mldsa_is_not_negotiated_for_tls12() {
+    let suite = *all_tls12_suites()
+        .first()
+        .expect("TLS 1.2 provider should have a cipher suite");
+    let (identity, key) = rfc9881_mldsa44_credentials();
+    let server_provider =
+        boring_rustls_provider::provider_with_ciphers(vec![SupportedCipherSuite::Tls12(suite)]);
+    let server_config = ServerConfig::builder(Arc::new(server_provider))
+        .with_no_client_auth()
+        .with_single_cert(identity, key)
+        .unwrap();
+
+    let verifier = MlDsa44HandshakeVerifier {
+        verified_tls13_signature: Arc::new(AtomicBool::new(false)),
+    };
+    let client_provider =
+        boring_rustls_provider::provider_with_ciphers(vec![SupportedCipherSuite::Tls12(suite)]);
+    let client_config = ClientConfig::builder(Arc::new(client_provider))
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_no_client_auth()
+        .unwrap();
+
+    assert!(try_handshake(client_config, Arc::new(server_config)).is_err());
 }
 
 // ---------------------------------------------------------------------------
