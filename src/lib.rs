@@ -17,13 +17,22 @@
 //! No features are enabled by default. The provider ships with TLS 1.3 support
 //! out of the box; additional capabilities are opt-in via feature flags:
 //!
-//! - **`fips`** — Build against FIPS-validated BoringSSL and restrict the
-//!   provider to FIPS-approved algorithms (SP 800-52r2). Implies `mlkem`.
+//! - **`fips`** — Build BoringSSL in FIPS mode and restrict the provider's
+//!   algorithms according to SP 800-52r2. Implies `mlkem`.
 //! - **`mlkem`** — Enable the X25519MLKEM768 post-quantum hybrid key exchange
 //!   group.
 //! - **`tls12`** — Enable TLS 1.2 cipher suites.
 //! - **`logging`** — Enable debug logging via the [`log`](https://docs.rs/log)
 //!   crate.
+//!
+//! # FIPS mode
+//!
+//! The `fips` feature applies the documented algorithm and key restrictions to
+//! this crate's built-in provider configuration and key loader. Applications
+//! that replace rustls components, particularly credential resolvers or signing
+//! keys, must independently preserve those restrictions. Running BoringSSL in
+//! FIPS mode does not by itself establish compliance for an application as a
+//! whole.
 
 use std::sync::Arc;
 
@@ -63,12 +72,6 @@ pub mod verify;
 pub fn provider() -> CryptoProvider {
     #[cfg(feature = "fips")]
     {
-        if !boring::fips::enabled() {
-            panic!(
-                "boring-rustls-provider is built with the 'fips' feature, but the underlying \
-                BoringSSL library is not in FIPS mode."
-            );
-        }
         provider_with_ciphers(ALL_FIPS_CIPHER_SUITES.to_vec())
     }
     #[cfg(not(feature = "fips"))]
@@ -79,15 +82,19 @@ pub fn provider() -> CryptoProvider {
 
 /// Returns a [`CryptoProvider`] using the given cipher suites.
 ///
-/// When the `fips` feature is enabled, any non-FIPS cipher suites in
-/// `ciphers` are silently filtered out.
+/// When the `fips` feature is enabled, this will **panic** if the underlying
+/// BoringSSL library is not running in FIPS mode. Cipher suites other than the
+/// canonical FIPS implementations supplied by this crate are silently filtered
+/// out, even if they use the same TLS codepoint as an approved suite.
 pub fn provider_with_ciphers(ciphers: Vec<rustls::SupportedCipherSuite>) -> CryptoProvider {
     #[cfg(feature = "fips")]
     let ciphers = {
+        assert_fips_mode();
+
         let original_len = ciphers.len();
         let filtered = ciphers
             .into_iter()
-            .filter(|suite| ALL_FIPS_CIPHER_SUITES.contains(suite))
+            .filter(is_canonical_fips_cipher_suite)
             .collect::<Vec<_>>();
 
         if filtered.len() != original_len {
@@ -113,6 +120,39 @@ pub fn provider_with_ciphers(ciphers: Vec<rustls::SupportedCipherSuite>) -> Cryp
         signature_verification_algorithms: verify::ALL_ALGORITHMS,
         secure_random: &Provider,
         key_provider: &Provider,
+    }
+}
+
+#[cfg(feature = "fips")]
+fn assert_fips_mode() {
+    if !boring::fips::enabled() {
+        panic!(
+            "boring-rustls-provider is built with the 'fips' feature, but the underlying \
+            BoringSSL library is not in FIPS mode."
+        );
+    }
+}
+
+#[cfg(feature = "fips")]
+fn is_canonical_fips_cipher_suite(suite: &SupportedCipherSuite) -> bool {
+    ALL_FIPS_CIPHER_SUITES
+        .iter()
+        .any(|allowed| same_cipher_suite_implementation(*suite, *allowed))
+}
+
+#[cfg(feature = "fips")]
+fn same_cipher_suite_implementation(
+    left: SupportedCipherSuite,
+    right: SupportedCipherSuite,
+) -> bool {
+    match (left, right) {
+        (SupportedCipherSuite::Tls12(left), SupportedCipherSuite::Tls12(right)) => {
+            std::ptr::eq(left, right)
+        }
+        (SupportedCipherSuite::Tls13(left), SupportedCipherSuite::Tls13(right)) => {
+            std::ptr::eq(left, right)
+        }
+        _ => false,
     }
 }
 
@@ -175,8 +215,7 @@ static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     SupportedCipherSuite::Tls12(&tls12::ECDHE_RSA_AES128_GCM_SHA256),
 ];
 
-/// Allowed KX groups for FIPS per [SP 800-52r2](https://doi.org/10.6028/NIST.SP.800-52r2),
-/// aligned with boring's `fips202205` compliance policy.
+/// Allowed KX groups for FIPS per [SP 800-52r2](https://doi.org/10.6028/NIST.SP.800-52r2).
 ///
 /// The `fips` feature implies `mlkem`, so X25519MLKEM768 is always
 /// available and preferred in FIPS mode.
@@ -189,8 +228,8 @@ static ALL_FIPS_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
 
 /// All supported KX groups, ordered by preference.
 ///
-/// Matches boring's default supported group list exactly:
-/// X25519MLKEM768 (when mlkem enabled), X25519, P-256, P-384.
+/// This is the subset of BoringSSL groups implemented by this provider:
+/// X25519MLKEM768 (when ML-KEM is enabled), X25519, P-256, and P-384.
 #[cfg(all(not(feature = "fips"), feature = "mlkem"))]
 static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     &kx::X25519MlKem768 as _, // PQ hybrid preferred

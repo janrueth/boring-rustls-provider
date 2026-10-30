@@ -110,6 +110,8 @@ jobs:
       run: sudo apt-get install -y cmake clang
     - name: Test (fips)
       run: cargo test --all-targets --features fips
+    - name: Test (fips, tls12)
+      run: cargo test --all-targets --features fips,tls12
 
   check-fips:
     runs-on: ubuntu-latest
@@ -120,5 +122,7 @@ jobs:
       run: sudo apt-get install -y cmake clang
     - name: Check (fips)
       run: cargo check --all-targets --features fips
+    - name: Check (fips, tls12)
+      run: cargo check --all-targets --features fips,tls12
     - name: Check (fips-precompiled)
       run: cargo check --all-targets --features fips-precompiled
