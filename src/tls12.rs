@@ -2,6 +2,13 @@ use rustls::{SignatureScheme, Tls12CipherSuite, crypto};
 
 use crate::{aead, hash, prf};
 
+#[cfg(feature = "fips")]
+static ALL_ECDSA_SCHEMES: &[SignatureScheme] = &[
+    SignatureScheme::ECDSA_NISTP256_SHA256,
+    SignatureScheme::ECDSA_NISTP384_SHA384,
+];
+
+#[cfg(not(feature = "fips"))]
 static ALL_ECDSA_SCHEMES: &[SignatureScheme] = &[
     SignatureScheme::ECDSA_NISTP256_SHA256,
     SignatureScheme::ECDSA_NISTP384_SHA384,
