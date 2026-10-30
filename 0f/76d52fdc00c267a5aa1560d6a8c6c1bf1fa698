@@ -1,0 +1,31 @@
+src/lib.rs
+  s_a530f499013012::t_007960d6193218 16-17,20-23,37-38,72-74
+Readme.md
+  s_a530f499013012::t_862e3fff213f0b 36-37,41,43,86-88,102-110,139-141,156-158
+src/sign.rs
+  s_a530f499013012::t_1edeef60b58c2e 3-4,13-14,32-50,64-72,77-117,123-132,224-225,228,297-298,301-302,305-306,309-310,312,315-320,325-331,335-379,468-472,474-478,486-611
+src/verify/mldsa.rs
+  s_a530f499013012::t_47f5bd6fe232f6 1-81
+.github/workflows/ci.yml
+  s_a530f499013012::t_bb8580f18ebf1a 48-61
+Makefile
+  s_a530f499013012::t_44557f51f9927d 27
+tests/fixtures/README.md
+  s_a530f499013012::t_aa34cdda3bbaab 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0f76d52fdc00c267a5aa1560d6a8c6c1bf1fa698",
+  "prompts": {},
+  "sessions": {
+    "s_a530f499013012": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_e73855c57ffeFDvrfQLZswi4gp",
+        "model": "unknown"
+      },
+      "human_author": "Jan Rüth <1324490+janrueth@users.noreply.github.com>"
+    }
+  }
+}
