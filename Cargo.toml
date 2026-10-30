@@ -11,18 +11,25 @@ keywords = ["tls", "rustls", "boringssl", "crypto", "fips"]
 categories = ["cryptography", "network-programming"]
 
 [features]
-default = []
+default = ["mldsa"]
 
-# Build BoringSSL in FIPS mode and restrict the provider to the
-# FIPS-approved algorithms selected by this crate. This affects:
+# Build BoringSSL in FIPS mode and apply this crate's documented FIPS
+# configuration. This affects:
 #   - Cipher suites: AES-GCM only (no ChaCha20-Poly1305).
 #   - Key exchange groups: X25519MLKEM768 (preferred), P-256, and P-384
 #     only (no X25519, X448, P-521, or FFDHE).
-#   - Signature algorithms and keys: RSA PKCS#1 / PSS with keys of at least
-#     2048 bits, and ECDSA with P-256/P-384 only (no P-521, Ed25519, or Ed448).
-# Implies `mlkem` to ensure the post-quantum hybrid group is available.
+#   - Signature algorithms and keys: ML-DSA remains available; classical
+#     algorithms are RSA PKCS#1 / PSS with keys of at least 2048 bits and
+#     ECDSA with P-256/P-384 only (no P-521, Ed25519, or Ed448).
+# Implies `mlkem` and `mldsa` to ensure the post-quantum algorithms remain
+# available.
 # These provider-side restrictions follow SP 800-52r2.
-fips = ["boring/fips", "mlkem"]
+fips = ["boring/fips", "mlkem", "mldsa"]
+
+# Enable ML-DSA-44, ML-DSA-65, and ML-DSA-87 signatures for TLS 1.3 and
+# certificate verification. Enabled by default; use `--no-default-features`
+# to omit ML-DSA support.
+mldsa = ["boring/mldsa"]
 
 # Enable X25519MLKEM768 post-quantum hybrid key exchange group
 # (draft-ietf-tls-ecdhe-mlkem-00). Uses ML-KEM-768 (FIPS 203) combined
@@ -42,12 +49,12 @@ tls12 = ["rustls/tls12", "boring/prf"]
 logging = ["log"]
 
 [dependencies]
-boring = { version = ">=5.3, <6", default-features = false }
-boring-sys = { version = ">=5.3, <6", default-features = false }
+boring = { version = ">=5.4, <6", default-features = false }
+boring-sys = { version = ">=5.4, <6", default-features = false }
 foreign-types = "0.5"
 log = { version = "0.4.4", optional = true }
-rustls = { version = ">=0.23.40, <0.24", default-features = false }
-rustls-pki-types = { version = "1" }
+rustls = { version = ">=0.23.46, <0.24", default-features = false }
+rustls-pki-types = { version = ">=1.12, <2" }
 spki = "0.7"
 zeroize = "1"
 
@@ -65,4 +72,4 @@ name = "client"
 required-features = ["logging"]
 
 [package.metadata.docs.rs]
-features = ["logging", "tls12", "mlkem"]
+features = ["logging", "tls12", "mlkem", "mldsa"]

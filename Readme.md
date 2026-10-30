@@ -33,13 +33,14 @@ crates themselves introduce a breaking change.
 
 ## Features
 
-No features are enabled by default. The provider ships with TLS 1.3 support
-out of the box; additional capabilities are opt-in.
+The `mldsa` feature is enabled by default. The provider ships with TLS 1.3
+support out of the box; other capabilities are opt-in.
 
 | Feature | Description |
 |---|---|
-| `fips` | Build BoringSSL in FIPS mode and restrict the provider to its FIPS-approved algorithm set (SP 800-52r2). Implies `mlkem`. See [FIPS mode](#fips-mode) below. |
+| `fips` | Build BoringSSL in FIPS mode and apply the provider's classical algorithm restrictions (SP 800-52r2). Implies `mlkem` and `mldsa`. See [FIPS mode](#fips-mode) below. |
 | `fips-precompiled` | Deprecated alias for `fips`. Matches the `boring` crate's feature name. |
+| `mldsa` | Enable ML-DSA-44, ML-DSA-65, and ML-DSA-87 certificate verification and TLS 1.3 authentication. Enabled by default; use `--no-default-features` to omit it. |
 | `mlkem` | Enable the X25519MLKEM768 post-quantum hybrid key exchange group (`draft-ietf-tls-ecdhe-mlkem-00`). Uses ML-KEM-768 (FIPS 203) combined with X25519. See [Post-quantum key exchange](#post-quantum-key-exchange). |
 | `tls12` | Enable TLS 1.2 cipher suites (`ECDHE-ECDSA` and `ECDHE-RSA` with AES-GCM and ChaCha20-Poly1305). Without this only TLS 1.3 is available. |
 | `logging` | Enable debug logging of BoringSSL errors and provider internals via the `log` crate. |
@@ -82,6 +83,9 @@ FIPS and non-FIPS configurations.
 ### Signature Algorithms
 
 ```
+ML_DSA_44 (TLS 1.3 only; requires mldsa feature)
+ML_DSA_65 (TLS 1.3 only; requires mldsa feature)
+ML_DSA_87 (TLS 1.3 only; requires mldsa feature)
 RSA_PKCS1_SHA256
 RSA_PKCS1_SHA384
 RSA_PKCS1_SHA512
@@ -94,6 +98,15 @@ ECDSA_NISTP521_SHA512
 ED25519
 ED448
 ```
+
+ML-DSA uses the pure signature form from
+[FIPS 204](https://doi.org/10.6028/NIST.FIPS.204), with an empty ML-DSA context,
+as specified for TLS 1.3 by
+[draft-ietf-tls-mldsa](https://datatracker.ietf.org/doc/draft-ietf-tls-mldsa/).
+ML-DSA public keys and certificate signatures use the identifiers and encodings
+from [RFC 9881](https://www.rfc-editor.org/rfc/rfc9881). Private-key loading
+accepts RFC 9881's canonical seed-only PKCS#8 form; expanded and combined
+private-key forms are not accepted.
 
 ## Post-Quantum Key Exchange
 
@@ -123,8 +136,9 @@ and restricts its algorithm selections according to
 - **Cipher suites**: AES-GCM only (no ChaCha20-Poly1305).
 - **Key exchange groups**: X25519MLKEM768 (preferred), P-256, and P-384 only
   (no standalone X25519).
-- **Signature algorithms and keys**: RSA PKCS#1 / PSS with keys of at least
-  2048 bits, and ECDSA with P-256 or P-384 only (no P-521, Ed25519, or Ed448).
+- **Signature algorithms and keys**: ML-DSA-44/65/87 remain available. Classical
+  signatures are restricted to RSA PKCS#1 / PSS with keys of at least 2048 bits
+  and ECDSA with P-256 or P-384 only (no P-521, Ed25519, or Ed448).
 
 This crate integrates BoringSSL cryptographic primitives with rustls. It does
 not construct a BoringSSL TLS context, so TLS policy is enforced through the
@@ -138,6 +152,9 @@ credential resolvers or signing keys—must independently ensure those
 components select only approved algorithms and key sizes. Running BoringSSL in
 FIPS mode is necessary for this configuration, but does not by itself establish
 compliance for an application as a whole.
+
+ML-DSA is standardized by FIPS 204. Its FIPS 140 validation status depends on
+the exact BoringSSL module and its validation certificate.
 
 ## License
 
