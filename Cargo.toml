@@ -13,15 +13,15 @@ categories = ["cryptography", "network-programming"]
 [features]
 default = []
 
-# Build against a FIPS-validated version of BoringSSL and restrict the
-# provider to FIPS-approved algorithms only. This affects:
+# Build BoringSSL in FIPS mode and restrict the provider to the
+# FIPS-approved algorithms selected by this crate. This affects:
 #   - Cipher suites: AES-GCM only (no ChaCha20-Poly1305).
 #   - Key exchange groups: X25519MLKEM768 (preferred), P-256, and P-384
 #     only (no X25519, X448, P-521, or FFDHE).
-#   - Signature algorithms: RSA PKCS#1 / PSS and ECDSA with P-256/P-384
-#     only (no P-521, Ed25519, or Ed448).
+#   - Signature algorithms and keys: RSA PKCS#1 / PSS with keys of at least
+#     2048 bits, and ECDSA with P-256/P-384 only (no P-521, Ed25519, or Ed448).
 # Implies `mlkem` to ensure the post-quantum hybrid group is available.
-# Aligned with boring's `fips202205` compliance policy (SP 800-52r2).
+# These provider-side restrictions follow SP 800-52r2.
 fips = ["boring/fips", "mlkem"]
 
 # Enable X25519MLKEM768 post-quantum hybrid key exchange group
