@@ -1,0 +1,19 @@
+src/sign.rs
+  s_a530f499013012::t_3b33a2ba9963d4 42-47,94-96,467-470,481-483
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8931eb98bea9b493ea42eb0e8729486b29fadf06",
+  "prompts": {},
+  "sessions": {
+    "s_a530f499013012": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_e73855c57ffeFDvrfQLZswi4gp",
+        "model": "unknown"
+      },
+      "human_author": "Jan Rüth <1324490+janrueth@users.noreply.github.com>"
+    }
+  }
+}
